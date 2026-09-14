@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HomeOps Guardian — Alexa+ MCP Simulator</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Permanent Disclosure Banner Required by Spec -->
+    <aside class="disclosure-banner" role="banner">
+      <span class="banner-badge">SIMULATED ALEXA+ CLIENT SURFACE</span>
+      <span class="banner-text">
+        Track Mandate: Not an Echo device. Amazon dev-relations confirmed no SDK can drive an Echo Show today
+        (<a href="https://youtu.be/ws61g53S2b4" target="_blank" rel="noopener noreferrer">Build Session ~07:38–09:22</a>).
+        Judged on plain-spec MCP Streamable HTTP (<code>2025-11-25</code>) with local HomeOps Guardian server.
+      </span>
+    </aside>
+
+    <div class="app-container">
+      <!-- App Header -->
+      <header class="app-header">
+        <div class="brand">
+          <div class="alexa-orb" id="alexa-orb" aria-hidden="true"></div>
+          <div class="brand-text">
+            <h1>HomeOps Guardian</h1>
+            <p class="subtitle">Alexa+ Ambient Energy & Appliance Diagnostician</p>
+          </div>
+        </div>
+
+        <div class="server-status-pill" id="server-status-pill">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="status-label" id="status-label">Connecting to MCP Server...</span>
+          <span class="session-badge" id="session-badge"></span>
+        </div>
+
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-inspector" title="Toggle Protocol Inspector">
+            <span class="icon">🔍</span> Inspector (<span id="req-count">0</span>)
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btn-reconnect" title="Reconnect MCP Session">
+            <span class="icon">🔄</span> Reconnect
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Two-Column Layout -->
+      <div class="main-layout">
+        <!-- Conversation Stage -->
+        <main class="conversation-stage">
+          <!-- Offline Warning Card (Visible only when server unreachable) -->
+          <div class="offline-card" id="offline-card" style="display: none;">
+            <div class="offline-icon">⚠️</div>
+            <h2>MCP Server Offline</h2>
+            <p>
+              The simulator communicates with the real HomeOps Guardian server over MCP Streamable HTTP.
+              Could not reach <code>http://127.0.0.1:3001/mcp</code>.
+            </p>
+            <div class="offline-instruction">
+              Start the server in a separate terminal:
+              <pre><code>ops\run-mcp.cmd</code></pre>
+            </div>
+            <button class="btn btn-primary" id="btn-retry-conn">Retry Connection</button>
+          </div>
+
+          <!-- Transcript Area -->
+          <div class="transcript-scroll" id="transcript-scroll">
+            <div class="welcome-card" id="welcome-card">
+              <div class="welcome-header">
+                <div class="welcome-icon">⚡</div>
+                <div>
+                  <h3>Welcome to HomeOps Guardian on Alexa+</h3>
+                  <p>
+                    Talk to Alexa+ to inspect domestic circuit loads, verify utility TOU tariffs, and stage rate-aware load shifts with mandatory human confirmation.
+                  </p>
+                </div>
+              </div>
+              <div class="welcome-hints">
+                <p>Click any suggested prompt below or type your own request to exercise the live MCP tools:</p>
+              </div>
+            </div>
+
+            <div class="messages-container" id="messages-container">
+              <!-- Dynamically populated speech & tool cards -->
+            </div>
+          </div>
+
+          <!-- Suggested Walkthrough Prompts (Judge-Facing) -->
+          <nav class="walkthrough-bar" aria-label="Suggested Utterances">
+            <div class="walkthrough-label">Suggested Walkthrough:</div>
+            <div class="chips-container" id="chips-container">
+              <button class="chip" data-text="Alexa, ping HomeOps Guardian">
+                <span class="chip-step">1</span> "Alexa, ping HomeOps Guardian"
+              </button>
+              <button class="chip" data-text="Alexa, what's my home energy status?">
+                <span class="chip-step">2</span> "Alexa, what's my home energy status?"
+              </button>
+              <button class="chip" data-text="Alexa, why is electricity so expensive right now?">
+                <span class="chip-step">3</span> "Alexa, why is electricity so expensive right now?"
+              </button>
+              <button class="chip" data-text="Alexa, optimize high-draw appliances for peak rates">
+                <span class="chip-step">4</span> "Alexa, optimize high-draw appliances for peak rates"
+              </button>
+              <button class="chip" data-text="Confirm staged load shift">
+                <span class="chip-step">5</span> "Confirm staged load shift"
+              </button>
+              <button class="chip" data-text="Alexa, check status after optimization">
+                <span class="chip-step">6</span> "Alexa, check status after optimization"
+              </button>
+            </div>
+          </nav>
+
+          <!-- Input Bar -->
+          <div class="input-bar-container">
+            <form class="input-form" id="input-form">
+              <div class="input-wrapper">
+                <span class="mic-indicator" id="mic-indicator">🎙️</span>
+                <input
+                  type="text"
+                  id="user-input"
+                  placeholder="Say something to Alexa+ (e.g. 'Alexa, check my circuit power')..."
+                  autocomplete="off"
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" id="btn-send">Speak</button>
+            </form>
+          </div>
+        </main>
+
+        <!-- Live MCP Protocol & Network Inspector Drawer -->
+        <aside class="protocol-inspector" id="protocol-inspector">
+          <div class="inspector-header">
+            <h3>Protocol & Network Audit</h3>
+            <button class="btn-close-inspector" id="btn-close-inspector" aria-label="Close Inspector">✕</button>
+          </div>
+          <div class="inspector-meta" id="inspector-meta">
+            <div class="meta-row">
+              <span class="meta-label">Transport:</span>
+              <span class="meta-val">Streamable HTTP (2025-11-25)</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Endpoint:</span>
+              <span class="meta-val">POST http://127.0.0.1:3001/mcp</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Session ID:</span>
+              <span class="meta-val code-font" id="inspector-session-id">None</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-label">Total Calls:</span>
+              <span class="meta-val" id="inspector-call-count">0</span>
+            </div>
+          </div>
+
+          <div class="inspector-logs" id="inspector-logs">
+            <div class="log-placeholder">Network traffic over MCP Streamable HTTP will appear here in real time.</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

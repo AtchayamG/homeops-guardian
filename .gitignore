@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Production and test build output
+dist/
+coverage/
+
+# Environment configurations and secrets
+.env
+.env.*
+!.env.example
+
+# Ops run logs
+ops/*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db

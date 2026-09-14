@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: MCP-Session-Id,MCP-Protocol-Version
+content-type: application/json
+mcp-session-id: 2925de1f-3f9f-4e76-b8f4-f9512f7b1ac3
+content-length: 171
+Date: Mon, 14 Sep 2026 11:48:17 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+

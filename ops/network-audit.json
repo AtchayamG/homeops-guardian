@@ -1,0 +1,354 @@
+[
+  {
+    "id": 1,
+    "timestamp": "2026-09-14T11:46:07.675Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (initialize)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {},
+        "clientInfo": {
+          "name": "alexa-plus-simulator",
+          "version": "0.1.0"
+        }
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "171",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "serverInfo": {
+          "name": "homeops-guardian",
+          "version": "0.1.0"
+        }
+      },
+      "jsonrpc": "2.0",
+      "id": 1
+    },
+    "durationMs": 65
+  },
+  {
+    "id": 2,
+    "timestamp": "2026-09-14T11:46:07.688Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/list)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tools/list",
+      "params": {}
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "1530",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "tools": [
+          {
+            "name": "ping",
+            "description": "Health check ping returning status and server timestamp",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "get_circuit_telemetry",
+            "description": "Query real-time electrical circuit power telemetry and current utility TOU tariff rate",
+            "inputSchema": {
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "type": "object",
+              "properties": {}
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "stage_load_shift",
+            "description": "Stage a rate-aware load shift for high-draw appliances during peak tariff. Requires human confirmation before any circuit modifications take place.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "description": "Reason for staging load shift"
+                }
+              },
+              "additionalProperties": false,
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          },
+          {
+            "name": "confirm_load_shift",
+            "description": "Explicit human confirmation gate to execute or cancel a staged rate-aware load shift.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "stagedActionId": {
+                  "type": "string",
+                  "description": "The ID of the staged load-shift plan to confirm"
+                },
+                "confirmed": {
+                  "type": "boolean",
+                  "description": "True to approve and execute the load shift; False to cancel"
+                }
+              },
+              "required": [
+                "stagedActionId",
+                "confirmed"
+              ],
+              "additionalProperties": false,
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            },
+            "execution": {
+              "taskSupport": "forbidden"
+            }
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 2
+    },
+    "durationMs": 11
+  },
+  {
+    "id": 3,
+    "timestamp": "2026-09-14T11:46:10.179Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/call: ping)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tools/call",
+      "params": {
+        "name": "ping",
+        "arguments": {}
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "135",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"status\":\"ok\",\"timestamp\":\"2026-09-14T11:46:10.176Z\"}"
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 3
+    },
+    "durationMs": 6
+  },
+  {
+    "id": 4,
+    "timestamp": "2026-09-14T11:46:11.801Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/call: get_circuit_telemetry)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tools/call",
+      "params": {
+        "name": "get_circuit_telemetry",
+        "arguments": {}
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "1112",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"timestamp\": \"2026-09-14T11:46:11.798Z\",\n  \"utility\": \"Pacific Gas & Electric (PG&E)\",\n  \"tariffSchedule\": \"E-TOU-C\",\n  \"currentTariff\": {\n    \"tier\": \"PEAK\",\n    \"ratePerKwh\": 0.48,\n    \"currency\": \"USD\",\n    \"window\": \"16:00 - 21:00 weekdays\"\n  },\n  \"circuits\": [\n    {\n      \"id\": \"hvac_main\",\n      \"name\": \"Heat Pump HVAC (Variable Speed)\",\n      \"status\": \"RUNNING\",\n      \"powerKw\": 3.8,\n      \"powerFactor\": 0.94,\n      \"hourlyCost\": 1.82\n    },\n    {\n      \"id\": \"ev_charger\",\n      \"name\": \"Level 2 EV Charger (Tesla Wall Connector)\",\n      \"status\": \"CHARGING\",\n      \"powerKw\": 7.2,\n      \"powerFactor\": 0.99,\n      \"hourlyCost\": 3.46\n    },\n    {\n      \"id\": \"water_heater\",\n      \"name\": \"Hybrid Heat Pump Water Heater\",\n      \"status\": \"HEATING\",\n      \"powerKw\": 2.4,\n      \"powerFactor\": 0.92,\n      \"hourlyCost\": 1.15\n    }\n  ],\n  \"totalHomePowerKw\": 13.4,\n  \"totalHourlyBurnRateUsd\": 6.43\n}"
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 4
+    },
+    "durationMs": 6
+  },
+  {
+    "id": 5,
+    "timestamp": "2026-09-14T11:46:13.491Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/call: stage_load_shift)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "tools/call",
+      "params": {
+        "name": "stage_load_shift",
+        "arguments": {
+          "reason": "User requested peak TOU rate optimization"
+        }
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "936",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"stagedActionId\": \"shift-bb58dba0\",\n  \"status\": \"PENDING_CONFIRMATION\",\n  \"confirmationRequired\": true,\n  \"message\": \"Peak load-shift plan staged. Human confirmation required before modulating electrical circuits.\",\n  \"proposedActions\": [\n    {\n      \"circuitId\": \"ev_charger\",\n      \"action\": \"PAUSE_CHARGING\",\n      \"powerReductionKw\": 7.2,\n      \"details\": \"Pause charging during $0.48/kWh peak window; auto-resume at 21:00 off-peak ($0.34/kWh)\"\n    },\n    {\n      \"circuitId\": \"hvac_main\",\n      \"action\": \"ECO_SETPOINT_OFFSET\",\n      \"powerReductionKw\": 2.4,\n      \"details\": \"Apply +2°F thermal pre-cool offset to variable speed compressor\"\n    }\n  ],\n  \"projectedReductionKw\": 9.6,\n  \"estimatedMonthlySavingsUsd\": 42.5,\n  \"reason\": \"User requested peak TOU rate optimization\"\n}"
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 5
+    },
+    "durationMs": 9
+  },
+  {
+    "id": 6,
+    "timestamp": "2026-09-14T11:46:17.217Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/call: confirm_load_shift)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tools/call",
+      "params": {
+        "name": "confirm_load_shift",
+        "arguments": {
+          "stagedActionId": "shift-bb58dba0",
+          "confirmed": true
+        }
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "358",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"stagedActionId\": \"shift-bb58dba0\",\n  \"status\": \"ACTION_EXECUTED\",\n  \"confirmedAt\": \"2026-09-14T11:46:17.211Z\",\n  \"newTotalHomePowerKw\": 3.8,\n  \"newHourlyBurnRateUsd\": 1.82,\n  \"message\": \"Load-shift executed successfully. High-draw circuits modulated.\"\n}"
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 6
+    },
+    "durationMs": 9
+  },
+  {
+    "id": 7,
+    "timestamp": "2026-09-14T11:46:19.236Z",
+    "method": "POST",
+    "url": "http://127.0.0.1:3001/mcp (tools/call: get_circuit_telemetry)",
+    "requestHeaders": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "MCP-Session-Id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93",
+      "MCP-Protocol-Version": "2025-11-25"
+    },
+    "requestBody": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "tools/call",
+      "params": {
+        "name": "get_circuit_telemetry",
+        "arguments": {}
+      }
+    },
+    "responseStatus": 200,
+    "responseHeaders": {
+      "content-length": "1100",
+      "content-type": "application/json",
+      "mcp-session-id": "a5a3f46f-f56b-4766-b6ed-94b05f95cf93"
+    },
+    "responseBody": {
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"timestamp\": \"2026-09-14T11:46:19.232Z\",\n  \"utility\": \"Pacific Gas & Electric (PG&E)\",\n  \"tariffSchedule\": \"E-TOU-C\",\n  \"currentTariff\": {\n    \"tier\": \"PEAK\",\n    \"ratePerKwh\": 0.48,\n    \"currency\": \"USD\",\n    \"window\": \"16:00 - 21:00 weekdays\"\n  },\n  \"circuits\": [\n    {\n      \"id\": \"hvac_main\",\n      \"name\": \"Heat Pump HVAC (Variable Speed)\",\n      \"status\": \"ECO\",\n      \"powerKw\": 1.4,\n      \"powerFactor\": 0.94,\n      \"hourlyCost\": 0.67\n    },\n    {\n      \"id\": \"ev_charger\",\n      \"name\": \"Level 2 EV Charger (Tesla Wall Connector)\",\n      \"status\": \"PAUSED\",\n      \"powerKw\": 0,\n      \"powerFactor\": 0.99,\n      \"hourlyCost\": 0\n    },\n    {\n      \"id\": \"water_heater\",\n      \"name\": \"Hybrid Heat Pump Water Heater\",\n      \"status\": \"HEATING\",\n      \"powerKw\": 2.4,\n      \"powerFactor\": 0.92,\n      \"hourlyCost\": 1.15\n    }\n  ],\n  \"totalHomePowerKw\": 3.8,\n  \"totalHourlyBurnRateUsd\": 1.82\n}"
+          }
+        ]
+      },
+      "jsonrpc": "2.0",
+      "id": 7
+    },
+    "durationMs": 6
+  }
+]
