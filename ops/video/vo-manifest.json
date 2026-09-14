@@ -1,0 +1,42 @@
+{
+  "voice": "en-US-AndrewNeural",
+  "rate": "+6%",
+  "segments": [
+    {
+      "id": "vo-01",
+      "file": "vo/vo-01.mp3",
+      "durationSec": 23.136
+    },
+    {
+      "id": "vo-02",
+      "file": "vo/vo-02.mp3",
+      "durationSec": 18.168
+    },
+    {
+      "id": "vo-03",
+      "file": "vo/vo-03.mp3",
+      "durationSec": 22.896
+    },
+    {
+      "id": "vo-04",
+      "file": "vo/vo-04.mp3",
+      "durationSec": 30.648
+    },
+    {
+      "id": "vo-05",
+      "file": "vo/vo-05.mp3",
+      "durationSec": 28.704
+    },
+    {
+      "id": "vo-06",
+      "file": "vo/vo-06.mp3",
+      "durationSec": 24.96
+    },
+    {
+      "id": "vo-07",
+      "file": "vo/vo-07.mp3",
+      "durationSec": 5.76
+    }
+  ],
+  "totalSec": 154.272
+}

@@ -1,0 +1,40 @@
+{
+  "schedule": [
+    {
+      "id": "vo-01",
+      "startSec": 0,
+      "durSec": 24.536
+    },
+    {
+      "id": "vo-02",
+      "startSec": 24.536,
+      "durSec": 19.576
+    },
+    {
+      "id": "vo-03",
+      "startSec": 44.112,
+      "durSec": 24.296
+    },
+    {
+      "id": "vo-04",
+      "startSec": 68.408,
+      "durSec": 32.062
+    },
+    {
+      "id": "vo-05",
+      "startSec": 100.47,
+      "durSec": 30.115
+    },
+    {
+      "id": "vo-06",
+      "startSec": 130.585,
+      "durSec": 26.369
+    },
+    {
+      "id": "vo-07",
+      "startSec": 156.954,
+      "durSec": 7.16
+    }
+  ],
+  "totalSec": 163
+}

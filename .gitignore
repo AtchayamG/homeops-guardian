@@ -16,3 +16,18 @@ ops/*.log
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Demo video intermediates. The pipeline scripts in ops/video/ are committed
+# and reproduce all of this from a running server; the outputs are not worth
+# the history. frames/ alone is several thousand screencast JPEGs.
+ops/video/frames/
+ops/video/work/
+ops/video/shots/
+ops/video/vo/
+ops/video/cards/
+ops/video/*.log
+ops/video/probe-t*.png
+ops/video/sync-t*.png
+ops/video/lt-check-t*.png
+ops/video/contact.png
+ops/video/probe-captured.txt

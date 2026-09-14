@@ -34,20 +34,87 @@ export interface CircuitState {
   hourlyCost: number;
 }
 
+export interface ProposedAction {
+  circuitId: string;
+  action: string;
+  powerReductionKw: number;
+  details: string;
+}
+
+export interface ExecutedAction extends ProposedAction {
+  /** Circuit draw before this action was applied, in kW. */
+  beforeKw: number;
+  /** Circuit draw after it was applied, in kW. */
+  afterKw: number;
+  /** The status the circuit ended up in. */
+  status: CircuitState['status'];
+}
+
 export interface StagedAction {
   id: string;
   sessionId: string;
   createdAt: number;
   status: 'PENDING_CONFIRMATION' | 'ACTION_EXECUTED' | 'ACTION_CANCELLED';
-  proposedActions: Array<{
-    circuitId: string;
-    action: string;
-    powerReductionKw: number;
-    details: string;
-  }>;
+  proposedActions: ProposedAction[];
   projectedReductionKw: number;
   estimatedMonthlySavingsUsd: number;
+  savingsBasis: string;
+  /** Present only after a confirmed execution. What was actually applied. */
+  executedActions?: ExecutedAction[];
+  /** Sum of (beforeKw - afterKw) across executedActions. */
+  deliveredReductionKw?: number;
 }
+
+/**
+ * The modelled tariff. One definition, used by the telemetry tool and by the
+ * savings model, so a rate cannot be stated in one place and assumed in
+ * another. Illustrative, not a live feed - every payload that carries these
+ * numbers also carries the `dataSource` block that says so.
+ */
+export const TARIFF = {
+  utility: 'Pacific Gas & Electric (PG&E)',
+  schedule: 'E-TOU-C',
+  peak: { ratePerKwh: 0.48, window: '16:00 - 21:00 weekdays', hoursPerWeekday: 5 },
+  offPeak: { ratePerKwh: 0.34, startsAt: '21:00' },
+  weekdaysPerMonth: 21.7,
+  currency: 'USD'
+} as const;
+
+/**
+ * What the load shift does to each circuit it touches.
+ *
+ * This is the single definition of the shift. `stageAction` reads it to build
+ * the plan it shows the user, and `executeAction` reads the plan to apply it -
+ * so the promise and the change come from one source.
+ *
+ * They did not, before. `stageAction` returned a hardcoded list
+ * (`powerReductionKw: 7.2`, `2.4`, `projectedReductionKw: 9.6`) while
+ * `executeAction` separately hardcoded `ev.powerKw = 0` and
+ * `hvac.powerKw = 1.4`. The two agreed only because both were typed against
+ * the same default state, and `ops/verify-gate.mjs` reported "promised 9.6 kW,
+ * delivered 9.60 kW" as a match when neither figure was derived from anything.
+ * A confirmation gate whose description and effect are independent constants
+ * is a gate in name only.
+ */
+const SHIFT_TARGETS: Record<
+  string,
+  { action: string; toStatus: CircuitState['status']; toPowerKw: number; details: string }
+> = {
+  ev_charger: {
+    action: 'PAUSE_CHARGING',
+    toStatus: 'PAUSED',
+    toPowerKw: 0,
+    details: `Pause charging during the $${TARIFF.peak.ratePerKwh}/kWh peak window; resume at ${TARIFF.offPeak.startsAt} off-peak ($${TARIFF.offPeak.ratePerKwh}/kWh)`
+  },
+  hvac_main: {
+    action: 'ECO_SETPOINT_OFFSET',
+    toStatus: 'ECO',
+    toPowerKw: 1.4,
+    details: 'Apply +2°F thermal pre-cool offset to the variable speed compressor'
+  }
+};
+
+const round2 = (n: number) => Number(n.toFixed(2));
 
 // In-memory state store for circuit simulations and staged confirmation actions
 export class HomeOpsState {
@@ -114,27 +181,51 @@ export class HomeOpsState {
 
   public stageAction(sessionId: string): StagedAction {
     const actionId = `shift-${randomUUID().slice(0, 8)}`;
+
+    // Each proposed reduction is measured against the circuit's draw right
+    // now, so the plan describes this household in this state. A circuit
+    // already paused proposes a 0 kW reduction rather than the 7.2 kW that
+    // used to be hardcoded here.
+    const proposedActions: ProposedAction[] = Object.entries(SHIFT_TARGETS)
+      .map(([circuitId, target]) => {
+        const circuit = this.circuits.get(circuitId);
+        if (!circuit) return null;
+        return {
+          circuitId,
+          action: target.action,
+          powerReductionKw: round2(Math.max(0, circuit.powerKw - target.toPowerKw)),
+          details: target.details
+        };
+      })
+      .filter((a): a is ProposedAction => a !== null);
+
+    const projectedReductionKw = round2(
+      proposedActions.reduce((sum, a) => sum + a.powerReductionKw, 0)
+    );
+
+    // Modelled, and the model is stated in the payload. Shifting load out of
+    // the peak window does not remove the consumption, it moves it, so the
+    // saving is the rate differential over the peak hours it avoids - not the
+    // full peak rate. The previous value, $42.50, was a constant with no
+    // stated basis at all.
+    const rateDelta = TARIFF.peak.ratePerKwh - TARIFF.offPeak.ratePerKwh;
+    const peakHoursPerMonth = TARIFF.peak.hoursPerWeekday * TARIFF.weekdaysPerMonth;
+    const estimatedMonthlySavingsUsd = round2(
+      projectedReductionKw * peakHoursPerMonth * rateDelta
+    );
+
     const action: StagedAction = {
       id: actionId,
       sessionId,
       createdAt: Date.now(),
       status: 'PENDING_CONFIRMATION',
-      proposedActions: [
-        {
-          circuitId: 'ev_charger',
-          action: 'PAUSE_CHARGING',
-          powerReductionKw: 7.2,
-          details: 'Pause charging during $0.48/kWh peak window; auto-resume at 21:00 off-peak ($0.34/kWh)'
-        },
-        {
-          circuitId: 'hvac_main',
-          action: 'ECO_SETPOINT_OFFSET',
-          powerReductionKw: 2.4,
-          details: 'Apply +2°F thermal pre-cool offset to variable speed compressor'
-        }
-      ],
-      projectedReductionKw: 9.6,
-      estimatedMonthlySavingsUsd: 42.50
+      proposedActions,
+      projectedReductionKw,
+      estimatedMonthlySavingsUsd,
+      savingsBasis:
+        `${projectedReductionKw} kW shifted x ${TARIFF.peak.hoursPerWeekday} peak hours x ` +
+        `${TARIFF.weekdaysPerMonth} weekdays/month x $${round2(rateDelta)}/kWh peak-to-off-peak ` +
+        `differential on a modelled ${TARIFF.schedule} schedule. Illustrative; not a bill.`
     };
     this.stagedActions.set(actionId, action);
     return action;
@@ -153,21 +244,36 @@ export class HomeOpsState {
       return action;
     }
 
-    // Apply circuit state changes
-    const ev = this.circuits.get('ev_charger');
-    if (ev) {
-      ev.status = 'PAUSED';
-      ev.powerKw = 0.0;
-      ev.hourlyCost = 0.0;
+    // Apply the plan that was staged, item by item, and record what each item
+    // actually did. Nothing here names a circuit or a target draw: those come
+    // from the staged plan and from SHIFT_TARGETS, so the change and the
+    // description the user approved cannot drift apart. The hourly cost is
+    // recomputed from the new draw at the modelled peak rate rather than
+    // assigned a literal.
+    const executedActions: ExecutedAction[] = [];
+
+    for (const proposed of action.proposedActions) {
+      const circuit = this.circuits.get(proposed.circuitId);
+      const target = SHIFT_TARGETS[proposed.circuitId];
+      if (!circuit || !target) continue;
+
+      const beforeKw = circuit.powerKw;
+      circuit.status = target.toStatus;
+      circuit.powerKw = target.toPowerKw;
+      circuit.hourlyCost = round2(target.toPowerKw * TARIFF.peak.ratePerKwh);
+
+      executedActions.push({
+        ...proposed,
+        beforeKw: round2(beforeKw),
+        afterKw: round2(circuit.powerKw),
+        status: circuit.status
+      });
     }
 
-    const hvac = this.circuits.get('hvac_main');
-    if (hvac) {
-      hvac.status = 'ECO';
-      hvac.powerKw = 1.4;
-      hvac.hourlyCost = 0.67;
-    }
-
+    action.executedActions = executedActions;
+    action.deliveredReductionKw = round2(
+      executedActions.reduce((sum, a) => sum + (a.beforeKw - a.afterKw), 0)
+    );
     action.status = 'ACTION_EXECUTED';
     return action;
   }
@@ -238,13 +344,26 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
           note: 'Do not present these figures to a user as their actual bill or their utility\'s current rate.'
         },
 
-        utility: 'Pacific Gas & Electric (PG&E)',
-        tariffSchedule: 'E-TOU-C',
+        // Read from the one TARIFF definition, so the rate the telemetry
+        // reports and the rate the savings model uses cannot diverge.
+        utility: TARIFF.utility,
+        tariffSchedule: TARIFF.schedule,
         currentTariff: {
           tier: 'PEAK',
-          ratePerKwh: 0.48,
-          currency: 'USD',
-          window: '16:00 - 21:00 weekdays'
+          ratePerKwh: TARIFF.peak.ratePerKwh,
+          currency: TARIFF.currency,
+          window: TARIFF.peak.window,
+          // The off-peak rate lives here, inside the payload the dataSource
+          // block above disclaims, because the client needs it to explain why
+          // shifting load saves anything - and a figure the client types in
+          // itself has nowhere to carry that disclaimer. The simulator used to
+          // state "$0.34/kWh (29% cheaper)" from its own source, where no
+          // dataSource travelled with it and nothing recomputed the 29% if
+          // either rate changed.
+          offPeak: {
+            ratePerKwh: TARIFF.offPeak.ratePerKwh,
+            startsAt: TARIFF.offPeak.startsAt
+          }
         },
         circuits,
         totalHomePowerKw: totalPowerKw,
@@ -286,6 +405,10 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
                 proposedActions: action.proposedActions,
                 projectedReductionKw: action.projectedReductionKw,
                 estimatedMonthlySavingsUsd: action.estimatedMonthlySavingsUsd,
+                // The arithmetic behind the money figure, in the payload with
+                // it. A saving with no stated basis is the kind of number a
+                // voice assistant should never be given to read aloud.
+                savingsBasis: action.savingsBasis,
                 reason: args.reason || 'User requested peak rate optimization'
               },
               null,
@@ -334,12 +457,26 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
                 stagedActionId: action.id,
                 status: action.status,
                 confirmedAt: new Date().toISOString(),
+                // What was applied, per circuit, with the draw before and
+                // after. A client cannot tell a user what changed unless the
+                // server says; this result used to report only the new total,
+                // so the simulator narrated two appliance names of its own
+                // invention. It now has something true to read from.
+                executedActions: action.executedActions ?? [],
+                // The reduction promised when the plan was staged, and the
+                // reduction the execution actually delivered, side by side.
+                // They are computed independently - one from the plan, one by
+                // summing before-minus-after across the circuits that moved -
+                // so if they ever disagree, the payload shows it rather than
+                // hiding it behind a single number.
+                projectedReductionKw: action.projectedReductionKw,
+                deliveredReductionKw: action.deliveredReductionKw ?? 0,
                 newTotalHomePowerKw: totalPowerKw,
                 newHourlyBurnRateUsd: totalHourlyBurnRate,
                 message:
                   action.status === 'ACTION_EXECUTED'
-                    ? 'Load-shift executed successfully. High-draw circuits modulated.'
-                    : 'Load-shift cancelled. All circuit breakers maintain prior settings.'
+                    ? 'Load-shift executed. The circuits listed in executedActions were modulated.'
+                    : 'Load-shift cancelled. Every circuit keeps its prior setting.'
               },
               null,
               2

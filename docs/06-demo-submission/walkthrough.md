@@ -3,6 +3,33 @@
 > For a judge who will not run anything, and a judge who will.
 > **Entrant**: Atchayam G · **Track**: Alexa+ (primary), Open Source (mini)
 
+## The demo video
+
+`homeops-demo.mp4` in this folder — 2:43, 1080p60, under the 3:00 limit. It is
+the app in this repository driving the server in this repository: every figure
+on screen arrived over MCP during the take, and the protocol-floor card is a
+verbatim capture of `node ops/probe-protocol-version.mjs` run against the
+server while the video was built.
+
+The whole cut is reproducible, which is the point:
+
+```cmd
+ops\video\tts.cmd                  :: narration, and measure it
+node ops\video\generate-cards.mjs  :: stills, incl. the live probe capture
+ops\run-both-detached.cmd          :: both halves, from source
+node ops\video\record.mjs          :: screencast, paced to the narration
+node ops\video\assemble.mjs        :: cut and mix
+ops\video\verify-video.cmd         :: duration, loudness, dead air, black frames
+```
+
+The recorder refuses to run if no server is up, and refuses to film a household
+that has already been shifted — state lives in the server process, so a take
+recorded after a verification run would show every proposed reduction at 0 kW.
+The narration is synthesized (Microsoft Edge Neural TTS) and the closing card
+says so.
+
+---
+
 ## Read this first: why there is no public URL
 
 The hackathon rules say judges are not required to test a submission. For this

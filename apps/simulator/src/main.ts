@@ -105,10 +105,46 @@ mcp.onLog((log: NetworkLogEntry) => {
 });
 
 // UI Helpers
+/**
+ * A finite number, or null. Deliberately not `?? fallback`.
+ *
+ * Every figure this client shows comes from an MCP tool result. When a field
+ * is absent the honest render is "the server did not report this" - so the
+ * call sites branch on null rather than substituting a number that looks
+ * right. The previous code used `|| 9.6`, `|| 3.8`, `|| 4.61` and `: '42.50'`,
+ * which matched the current server by coincidence and would have gone on
+ * stating those figures after the server stopped sending them.
+ */
+function numOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
 function escapeHtml(str: string): string {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+/**
+ * Names the two largest circuits in a telemetry payload and states their real
+ * share of the reported total. If the payload cannot support the claim, it
+ * makes no claim.
+ */
+function topTwoShareSentence(data: any): string {
+  const circuits: any[] = Array.isArray(data?.circuits) ? data.circuits : [];
+  const total = numOrNull(data?.totalHomePowerKw);
+  const ranked = circuits
+    .map((c) => ({ name: String(c?.name ?? 'unnamed circuit'), kw: numOrNull(c?.powerKw) }))
+    .filter((c): c is { name: string; kw: number } => c.kw !== null)
+    .sort((a, b) => b.kw - a.kw);
+
+  if (ranked.length < 2 || total === null || total <= 0) {
+    return 'The server did not report enough circuit detail to say which loads dominate.';
+  }
+
+  const [first, second] = ranked;
+  const share = Math.round(((first.kw + second.kw) / total) * 100);
+  return `<strong>${escapeHtml(first.name)}</strong> and <strong>${escapeHtml(second.name)}</strong> are the two largest draws, together ${share}% of the reported total.`;
 }
 
 function scrollToBottom() {
@@ -203,14 +239,50 @@ function appendConfirmationGate(stagedData: any): HTMLElement {
   const actionId = stagedData.stagedActionId || `shift-${Date.now().toString(36)}`;
   gateCard.id = `gate-${actionId}`;
 
-  const savingsStr =
-    typeof stagedData.estimatedMonthlySavingsUsd === 'number'
-      ? stagedData.estimatedMonthlySavingsUsd.toFixed(2)
-      : '42.50';
-  const reductionStr =
-    typeof stagedData.projectedReductionKw === 'number'
-      ? stagedData.projectedReductionKw
-      : '9.6';
+  // Everything this card shows is read out of the staged payload. It used to
+  // be typed into the HTML - two named circuits ("Tesla EV Wall Connector:
+  // PAUSE CHARGING (Shed 7.2 kW)", "Heat Pump HVAC: ECO SETPOINT +2°F") and a
+  // $0.48/kWh tariff - and the totals fell back to `|| 9.6` and `|| '42.50'`
+  // when a field was missing. It looked correct only because the hardcoded
+  // numbers happened to match what the server sends today.
+  //
+  // This is the one surface where that is intolerable. The user's approval is
+  // consent to the plan *as described*, so a gate that describes something
+  // other than what it will execute is worse than having no gate at all - our
+  // own walkthrough says so. If the server does not report a field, this card
+  // says the server did not report it. It never supplies a plausible number.
+  const missing = (label: string) =>
+    `<span class="breakdown-val val-missing" title="The server did not report this field.">${label} not reported by the server</span>`;
+
+  const num = numOrNull;
+
+  const actions: any[] = Array.isArray(stagedData.proposedActions)
+    ? stagedData.proposedActions
+    : [];
+
+  const actionRows = actions.length
+    ? actions
+        .map((a) => {
+          const kw = num(a?.powerReductionKw);
+          const verb = a?.action ? String(a.action).replace(/_/g, ' ') : null;
+          const right =
+            verb && kw !== null
+              ? `${escapeHtml(verb)} (shed ${kw} kW)`
+              : verb
+                ? `${escapeHtml(verb)} (reduction not reported)`
+                : 'action not reported by the server';
+          return `
+      <div class="breakdown-row">
+        <span class="breakdown-label"><code>${escapeHtml(String(a?.circuitId ?? 'unnamed circuit'))}</code></span>
+        <span class="breakdown-val">${right}</span>
+      </div>
+      ${a?.details ? `<div class="breakdown-detail">${escapeHtml(String(a.details))}</div>` : ''}`;
+        })
+        .join('')
+    : `<div class="breakdown-row"><span class="breakdown-label">Proposed actions</span>${missing('none')}</div>`;
+
+  const reductionKw = num(stagedData.projectedReductionKw);
+  const savingsUsd = num(stagedData.estimatedMonthlySavingsUsd);
 
   gateCard.innerHTML = `
     <div class="gate-header">
@@ -218,25 +290,36 @@ function appendConfirmationGate(stagedData: any): HTMLElement {
       <span class="gate-title">Action ID: <code>${actionId}</code></span>
     </div>
     <div class="gate-body">
-      HomeOps Guardian has staged high-draw circuit modulations to avoid the $0.48/kWh peak tariff.
-      <strong>No breakers will be modified until you explicitly approve this action below.</strong>
+      ${escapeHtml(
+        String(
+          stagedData.message ??
+            'A plan has been staged. The server sent no message describing it.'
+        )
+      )}
+      <strong>No circuit is modified until you approve this action below.</strong>
     </div>
     <div class="gate-breakdown">
-      <div class="breakdown-row">
-        <span class="breakdown-label">Tesla EV Wall Connector:</span>
-        <span class="breakdown-val">PAUSE CHARGING (Shed 7.2 kW)</span>
+      ${actionRows}
+      <div class="breakdown-row breakdown-total">
+        <span class="breakdown-label">Total peak load shed:</span>
+        ${
+          reductionKw !== null
+            ? `<span class="breakdown-val">${reductionKw} kW</span>`
+            : missing('total')
+        }
       </div>
       <div class="breakdown-row">
-        <span class="breakdown-label">Heat Pump HVAC:</span>
-        <span class="breakdown-val">ECO SETPOINT +2°F (Shed 2.4 kW)</span>
+        <span class="breakdown-label">Projected monthly saving <em>(modelled)</em>:</span>
+        ${
+          savingsUsd !== null
+            ? `<span class="breakdown-val savings">$${savingsUsd.toFixed(2)} USD</span>`
+            : missing('saving')
+        }
       </div>
-      <div class="breakdown-row">
-        <span class="breakdown-label">Total Peak Load Shed:</span>
-        <span class="breakdown-val">${reductionStr} kW</span>
-      </div>
-      <div class="breakdown-row">
-        <span class="breakdown-label">Projected Monthly Savings:</span>
-        <span class="breakdown-val savings">$${savingsStr} USD</span>
+      <div class="breakdown-note">
+        The saving is modelled from a simulated time-of-use tariff, not read
+        from a meter or a utility account. See the <code>dataSource</code> block
+        on any <code>get_circuit_telemetry</code> result.
       </div>
     </div>
     <div class="gate-actions" id="gate-actions-${actionId}">
@@ -355,11 +438,36 @@ async function handleUtterance(text: string) {
         `;
       }
 
+      // Spoken back from the execution result, not from memory. The previous
+      // version narrated two named appliances and "13.4 kW to 3.8 kW, saving
+      // $4.61/hr" with `|| 3.8` and `|| 4.61` fallbacks, so if the server had
+      // reported anything else - or nothing - Alexa would have confidently
+      // said these numbers anyway. Missing means missing.
+      const newTotal = numOrNull(resultData.newTotalHomePowerKw);
+      const ratePerHour = numOrNull(resultData.activeSavingsRatePerHour);
+      const executed: any[] = Array.isArray(resultData.executedActions)
+        ? resultData.executedActions
+        : [];
+
+      const executedLines = executed.length
+        ? executed
+            .map((a) => {
+              const kw = numOrNull(a?.powerReductionKw);
+              const verb = a?.action ? String(a.action).replace(/_/g, ' ') : 'changed';
+              return `• <code>${escapeHtml(String(a?.circuitId ?? 'unnamed circuit'))}</code>: ${escapeHtml(verb)}${kw !== null ? ` (${kw} kW shed)` : ''}`;
+            })
+            .join('<br>')
+        : '• The server did not itemise the circuits it changed.';
+
       appendAlexaMessage(
         `Confirmation verified. I have executed the load shift via MCP tool <code>confirm_load_shift</code>.<br><br>` +
-        `• <strong>Tesla EV Charger:</strong> PAUSED until 9:00 PM off-peak window.<br>` +
-        `• <strong>Heat Pump HVAC:</strong> Shifted to Eco (+2°F thermal pre-cool offset).<br><br>` +
-        `Your household draw has dropped from 13.4 kW to <strong>${resultData.newTotalHomePowerKw || 3.8} kW</strong>, saving <strong>$${resultData.activeSavingsRatePerHour || 4.61}/hr</strong> while peak rates remain active.`
+        `${executedLines}<br><br>` +
+        (newTotal !== null
+          ? `Household draw is now <strong>${newTotal} kW</strong>.`
+          : `The server did not report a new household total.`) +
+        (ratePerHour !== null
+          ? ` Modelled saving while the peak window lasts: <strong>$${ratePerHour}/hr</strong>.`
+          : '')
       );
 
       pendingStagedActionId = null;
@@ -390,9 +498,17 @@ async function handleUtterance(text: string) {
 
       pendingStagedActionId = staged.stagedActionId;
 
+      const stagedKw = numOrNull(staged.projectedReductionKw);
+      const stagedSavings = numOrNull(staged.estimatedMonthlySavingsUsd);
+
       appendAlexaMessage(
-        `I have analyzed your circuits and staged a peak load-shift plan to shed <strong>${staged.projectedReductionKw || 9.6} kW</strong>, with projected monthly savings of <strong>$${typeof staged.estimatedMonthlySavingsUsd === 'number' ? staged.estimatedMonthlySavingsUsd.toFixed(2) : '42.50'}</strong>.<br><br>` +
-        `Because modifying breaker settings directly affects your appliances, <strong>Alexa+ requires your explicit confirmation</strong> before executing this action.`
+        (stagedKw !== null
+          ? `I have analysed your circuits and staged a peak load-shift plan to shed <strong>${stagedKw} kW</strong>`
+          : `I have analysed your circuits and staged a peak load-shift plan, though the server did not report how much load it would shed`) +
+        (stagedSavings !== null
+          ? `, with a modelled monthly saving of <strong>$${stagedSavings.toFixed(2)}</strong>.<br><br>`
+          : `.<br><br>`) +
+        `Because changing a breaker setting affects your appliances, <strong>this needs your explicit confirmation</strong> before it runs. Nothing has changed yet.`
       );
 
       // Render the prominent confirmation gate card
@@ -498,11 +614,32 @@ async function handleUtterance(text: string) {
         data = {};
       }
 
+      // Both rates come from the payload, and the percentage is computed from
+      // them. It used to read "Off-Peak Rate (after 9:00 PM): $0.34/kWh (29%
+      // cheaper)" as a literal in this file - a rate no tool result contained,
+      // next to a percentage nothing recalculated.
+      const peakRate = numOrNull(data.currentTariff?.ratePerKwh);
+      const offPeakRate = numOrNull(data.currentTariff?.offPeak?.ratePerKwh);
+      const offPeakStart = data.currentTariff?.offPeak?.startsAt;
+      const cheaperPct =
+        peakRate !== null && offPeakRate !== null && peakRate > 0
+          ? Math.round(((peakRate - offPeakRate) / peakRate) * 100)
+          : null;
+
+      const offPeakLine =
+        offPeakRate !== null
+          ? `• <strong>Off-peak rate${offPeakStart ? ` (from ${escapeHtml(String(offPeakStart))})` : ''}:</strong> $${offPeakRate}/kWh${cheaperPct !== null ? ` — ${cheaperPct}% lower` : ''}<br><br>`
+          : `• <strong>Off-peak rate:</strong> not reported by the server<br><br>`;
+
       appendAlexaMessage(
-        `Electricity is expensive right now because you are inside the PG&E <strong>${data.tariffSchedule} Peak Window</strong> (${data.currentTariff?.window}).<br><br>` +
-        `• <strong>Current Peak Rate:</strong> $${data.currentTariff?.ratePerKwh}/kWh<br>` +
-        `• <strong>Off-Peak Rate (after 9:00 PM):</strong> $0.34/kWh (29% cheaper)<br><br>` +
-        `At your current <strong>${data.totalHomePowerKw} kW</strong> draw, your burn rate is <strong>$${data.totalHourlyBurnRateUsd} per hour</strong>. You can save money by shifting flexible loads to off-peak hours.`
+        `Electricity is expensive right now because you are inside the <strong>modelled</strong> PG&E <strong>${escapeHtml(String(data.tariffSchedule ?? 'time-of-use'))} peak window</strong> (${escapeHtml(String(data.currentTariff?.window ?? 'window not reported'))}).<br><br>` +
+        (peakRate !== null
+          ? `• <strong>Current peak rate:</strong> $${peakRate}/kWh<br>`
+          : `• <strong>Current peak rate:</strong> not reported by the server<br>`) +
+        offPeakLine +
+        (numOrNull(data.totalHomePowerKw) !== null && numOrNull(data.totalHourlyBurnRateUsd) !== null
+          ? `At your current <strong>${data.totalHomePowerKw} kW</strong> draw, that is <strong>$${data.totalHourlyBurnRateUsd} per hour</strong>. Shifting flexible load past the peak window is what reduces it.`
+          : `The server did not report a current draw or burn rate.`)
       );
     }
     // 7. General Telemetry Query Utterance
@@ -544,7 +681,12 @@ async function handleUtterance(text: string) {
         // are a fixture - see dataSource on the payload.
         `Your household is currently drawing <strong>${data.totalHomePowerKw} kW</strong>, costing <strong>$${data.totalHourlyBurnRateUsd}/hr</strong> on a <strong>modelled</strong> PG&E <strong>${data.currentTariff?.tier}</strong> tier ($${data.currentTariff?.ratePerKwh}/kWh — illustrative, not a live rate).<br><br>` +
         `Active high-draw circuits:<ul>${circuitsHtml}</ul><br>` +
-        `Your Level 2 EV Charger and Heat Pump HVAC make up 80%+ of this load. Would you like me to stage a peak load shift to reduce consumption?`
+        // Was: "Your Level 2 EV Charger and Heat Pump HVAC make up 80%+ of
+        // this load." Two appliance names typed into the client and a share
+        // nothing measured. Both now come out of the circuit list the server
+        // just sent: the two largest draws, and their real share of the total.
+        topTwoShareSentence(data) +
+        ` Would you like me to stage a peak load shift to reduce consumption?`
       );
     }
     // General / Unknown fallback
