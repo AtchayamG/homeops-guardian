@@ -52,15 +52,30 @@ npm test
 Expected, exactly:
 
 ```
+PASS tests/ops-entrypoints.test.ts
 PASS tests/unit.test.ts
 PASS tests/integration.test.ts
-Test Suites: 2 passed, 2 total
-Tests:       22 passed, 22 total
+Test Suites: 3 passed, 3 total
+Tests:       32 passed, 32 total
 ```
 
-Those 22 include the six negative transport paths and a six-case protocol-floor
-matrix. If this is green, the transport is spec-shaped and the confirmation gate
+Those 32 include the six negative transport paths, a six-case protocol-floor
+matrix, and a suite that checks the `ops/` scripts themselves — see the note
+below. If this is green, the transport is spec-shaped and the confirmation gate
 holds.
+
+> **Why a test reads the batch files.** `npm start` runs `tsx src/index.ts`, so
+> a server started by hand is always the current source. Two `ops/` scripts
+> used to start `node dist\index.js` instead, and `dist/` is a gitignored build
+> artefact that is easy to leave stale. After the protocol floor was fixed in
+> `src/server.ts` without a rebuild, the two entry points disagreed — the probe
+> run against the detached script reported the *old* behaviour
+> (`2024-11-05 → 2024-11-05`) while every test stayed green, because the tests
+> import the source. A judge following step 5 below would have been talking to
+> a server this repository no longer contains. Both scripts now run from
+> source, and `tests/ops-entrypoints.test.ts` fails the build if any `ops/`
+> script launches `node dist/` again. It found the second offending script by
+> itself.
 
 ### 2. Start the server
 

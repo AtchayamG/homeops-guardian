@@ -1,10 +1,18 @@
 @echo off
+REM Verification of the live transport against a server started FROM SOURCE.
+REM This script used to start `node dist\index.js`, so it verified whatever
+REM tsc last emitted rather than what the repository contains - and it
+REM cheerfully reported a clean handshake from a server whose protocol floor
+REM was still the pre-fix behaviour. tests/ops-entrypoints.test.ts is what
+REM caught it here, and what keeps it from coming back.
 setlocal
-set P=D:\Work\Codex\Hackathon Projects\Amazon Developer Hackathon\projects\03-alexa-mcp
+set "P=%~dp0.."
 cd /d "%P%\services\mcp-server"
-echo === starting server detached ===
-start "MCP Server" /min cmd /c "node dist\index.js > "%P%\ops\server-live.log" 2>&1"
-ping -n 6 127.0.0.1 >nul
+echo === starting server detached, from source ===
+start "MCP Server" /min "%~dp0_launch-server.cmd"
+REM tsx has to transpile before it listens, so this wait is longer than the
+REM 5s that sufficed for prebuilt `node dist`.
+ping -n 11 127.0.0.1 >nul
 echo === health ===
 curl -s -m 10 http://127.0.0.1:3001/health
 echo.

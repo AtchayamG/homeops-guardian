@@ -67,7 +67,7 @@ the fix was mine rather than the platform's, it says so.
 * **Steps taken**: Read the Streamable HTTP section of the spec and hand-wrote the negative paths: `POST /mcp` without both `application/json` and `text/event-stream` in `Accept` → **406**; `GET /mcp` without `text/event-stream` → **406**; a non-initialize request with no `MCP-Session-Id` → **400**; an unknown session id → **404**; a disallowed `Origin` → **403** (the spec's DNS-rebinding guard, which is easy to skip entirely because nothing fails without it); `DELETE /mcp` terminating a session → **204**.
 * **Expected vs actual**: Expected an official conformance suite, or at least a checklist of MUSTs to assert against. Neither exists, so every server author derives the same tests from the same prose and some of them get it wrong in ways their own client will never reveal.
 * **Severity**: **Medium.** It does not block a build; it silently lowers the floor for everyone's implementation.
-* **Workaround**: Wrote the assertions by hand (`services/mcp-server/tests/integration.test.ts`, `tests/unit.test.ts`; 22 tests green).
+* **Workaround**: Wrote the assertions by hand (`services/mcp-server/tests/integration.test.ts`, `tests/unit.test.ts`; 32 tests green).
 * **Suggested fix**: Ship an official `mcp-conformance` runner that takes a base URL and reports pass/fail per MUST in the transport spec. For a hackathon that states a minimum spec version, this would also give judges a one-command way to check the claim.
 
 ---
@@ -94,6 +94,26 @@ the fix was mine rather than the platform's, it says so.
 
 ---
 
+### Entry 7: `npm start` and the ops scripts ran two different servers, and only one of them had the fix
+
+* **Task attempted**: Re-verify the protocol floor end to end before recording the demo, by bringing both halves up with `ops\run-both-detached.cmd` and running the probe against them.
+* **Steps taken**: `ops\run-both-detached.cmd`, then `node ops/probe-protocol-version.mjs`.
+* **Expected vs actual**: Expected all six rows to answer `2025-11-25`, as the README and the walkthrough both state. Got the **pre-fix** behaviour instead:
+
+  ```
+  client asks for 2025-06-18                           200  2025-06-18
+  client asks for 2025-03-26 (the SDK default)          200  2025-03-26
+  client asks for 2024-11-05                           200  2024-11-05
+  ```
+
+  The cause is a split entry point. `package.json` has `"start": "tsx src/index.ts"` — source — while `"main"` points at `dist/index.js`, and two `ops/` scripts launched `node dist\index.js`. `dist/` is gitignored, so it is a local artefact that only changes when someone remembers `npm run build`. The floor was fixed in `src/server.ts`; `dist` still held the old emit. Every test passed the whole time, because the tests import the source. So the repository was correct, the test suite was honest, the documentation was accurate about the source — and the server a judge would actually have reached by following step 5 of the walkthrough was a build that no longer existed in the repository.
+* **Severity**: **High.** Not a crash, and nothing in any log looked wrong. It is the specific shape of failure that survives a green suite: the artefact under test and the artefact under demonstration are different files. The same class of bug cost Project 1 two days (an env var that compiled to `undefined` while its tests read the same `undefined`), which is the only reason I thought to run the probe against the script rather than against `npm start`.
+* **Workaround**: None needed once found — but "rebuild before demoing" is a rule that fails the first time someone is in a hurry, so it is not the fix.
+* **Fix applied**: Both scripts now start the server from source through `npm start`, via a small `ops/_launch-server.cmd` (a launcher file, because `start "" cmd /c "cd /d ""path with spaces"" && ..."` silently ran nothing here — no process, no port, no log). One entry point, one code path, no artefact to serve by accident. And `services/mcp-server/tests/ops-entrypoints.test.ts` now reads every `.cmd` in `ops/` and fails the build if one launches `node dist/`. It earned its place immediately: it caught a **second** script, `ops/verify-live.cmd`, which had the same defect and whose whole job is to verify the live transport — it had been verifying a stale binary and reporting success.
+* **Suggested fix (for the toolchain, not just us)**: When `package.json` declares both a `main` pointing at a build directory and a `start` script that runs the sources, those are two different programs sharing one name. `npm start` could warn when `main` exists on disk and is older than the newest file in `src/`. It is a two-line check and it would have saved this hour.
+
+---
+
 ## Where each entry can be reproduced
 
 | Entry | Reproduce with |
@@ -101,6 +121,7 @@ the fix was mine rather than the platform's, it says so.
 | 1 | The Alexa+ track and Agent Skills pages, against https://youtu.be/ws61g53S2b4 ~[07:38]–[09:22] |
 | 2 | `ops\run-mcp.cmd`, then `node ops/probe-protocol-version.mjs` |
 | 3 | Same probe, the "omits protocolVersion entirely" row |
-| 4 | `cd services/mcp-server && npm test` (22 tests, including the six negative transport paths) |
+| 4 | `cd services/mcp-server && npm test` (32 tests, including the six negative transport paths) |
 | 5 | `tools/list` on a running server; `services/mcp-server/tests/unit.test.ts` |
 | 6 | `ops\run-both-detached.cmd`, then `node ops/verify-gate.mjs` |
+| 7 | `git stash` the fix, run `ops\run-both-detached.cmd` and the probe, and watch the rows answer the client's own version. Or just read `tests/ops-entrypoints.test.ts`, which fails the build if it comes back. |
