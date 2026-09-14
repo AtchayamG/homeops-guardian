@@ -5,6 +5,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
+/**
+ * The lowest MCP spec version this server will serve. The Alexa+ track's
+ * resources page states 2025-11-25 as the minimum; the SDK will negotiate
+ * down to 2024-10-07 if a client asks, so the floor is held here instead.
+ * Date-shaped version strings compare correctly as strings.
+ */
+export const PROTOCOL_FLOOR = '2025-11-25';
+
 export interface McpSession {
   sessionId: string;
   transport: StreamableHTTPServerTransport;
@@ -459,6 +467,36 @@ export function createMcpApp(options: AppOptions = {}): {
     const sessionIdHeader = req.headers['mcp-session-id'] as string | undefined;
 
     if (isInit) {
+      // Hold the declared protocol floor.
+      //
+      // The Alexa+ track states a MINIMUM MCP spec version of 2025-11-25, but
+      // @modelcontextprotocol/sdk 1.30.0 lists 2025-06-18, 2025-03-26,
+      // 2024-11-05 and 2024-10-07 as supported too, and offers no way to say
+      // "do not go below X". Measured with ops/probe-protocol-version.mjs: a
+      // client asking for 2024-11-05 got HTTP 200 and a handshake agreeing to
+      // 2024-11-05. A README claiming 2025-11-25 would have been true only of
+      // the best case.
+      //
+      // The spec's own remedy applies: when the requested version is not one
+      // the server will serve, respond with a version the server does support
+      // and let the client decide whether to continue. So we rewrite anything
+      // below the floor up to the floor, and the handshake answers 2025-11-25.
+      const raiseToFloor = (msg: any) => {
+        const asked = msg?.params?.protocolVersion;
+        if (
+          msg?.method === 'initialize' &&
+          typeof asked === 'string' &&
+          asked < PROTOCOL_FLOOR
+        ) {
+          msg.params.protocolVersion = PROTOCOL_FLOOR;
+        }
+      };
+      if (Array.isArray(body)) {
+        body.forEach(raiseToFloor);
+      } else {
+        raiseToFloor(body);
+      }
+
       // Create new stateful session
       const newSessionId = randomUUID();
       const transport = new StreamableHTTPServerTransport({

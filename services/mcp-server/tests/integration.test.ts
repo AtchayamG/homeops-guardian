@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createMcpApp } from '../src/server.js';
+import { createMcpApp, PROTOCOL_FLOOR } from '../src/server.js';
 
 describe('MCP Server Live HTTP Integration Test', () => {
   let server: http.Server;
@@ -192,5 +192,75 @@ describe('MCP Server Live HTTP Integration Test', () => {
     const confirmed = JSON.parse(confirmBody.result.content[0].text);
     expect(confirmed.status).toBe('ACTION_EXECUTED');
     expect(confirmed.newTotalHomePowerKw).toBe(3.8);
+  });
+});
+
+/**
+ * The Alexa+ track states a minimum MCP spec version of 2025-11-25. The SDK
+ * will negotiate down to 2024-10-07 if a client asks for it, which would make
+ * our own "implements 2025-11-25" claim true only of the best case. Measured
+ * before the fix with ops/probe-protocol-version.mjs: a client asking for
+ * 2024-11-05 was answered 200 / 2024-11-05.
+ */
+describe('MCP Server holds its declared protocol floor', () => {
+  let server: http.Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    const { app } = createMcpApp();
+    server = http.createServer(app);
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as { port: number };
+        baseUrl = `http://127.0.0.1:${addr.port}`;
+        resolve();
+      });
+    });
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const initWith = async (protocolVersion: string) => {
+    const res = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: { name: 'floor-test', version: '0.1.0' }
+        }
+      })
+    });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+
+  it('declares 2025-11-25 as the floor', () => {
+    expect(PROTOCOL_FLOOR).toBe('2025-11-25');
+  });
+
+  it.each(['2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'])(
+    'answers %s with the floor instead of negotiating down',
+    async (asked) => {
+      const { status, body } = await initWith(asked);
+      expect(status).toBe(200);
+      // Per the spec, a server that will not serve the requested version
+      // responds with one it does support; the client then decides.
+      expect(body.result.protocolVersion).toBe(PROTOCOL_FLOOR);
+    }
+  );
+
+  it('serves the floor itself unchanged', async () => {
+    const { status, body } = await initWith(PROTOCOL_FLOOR);
+    expect(status).toBe(200);
+    expect(body.result.protocolVersion).toBe(PROTOCOL_FLOOR);
   });
 });

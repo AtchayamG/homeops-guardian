@@ -272,6 +272,17 @@ describe('MCP Server Unit Tests', () => {
     expect(res.body.error.message).toContain('Missing MCP-Session-Id');
   });
 
+  it('rejects a GET that does not accept text/event-stream with 406', async () => {
+    // The SSE stream is the one thing GET /mcp exists to serve, so a client
+    // that cannot read it must be told so rather than handed an empty 200.
+    const res = await request(app)
+      .get('/mcp')
+      .set('Accept', 'application/json');
+
+    expect(res.status).toBe(406);
+    expect(res.body.error.message).toContain('text/event-stream');
+  });
+
   it('rejects invalid or unknown MCP-Session-Id with 404', async () => {
     const res = await request(app)
       .post('/mcp')
