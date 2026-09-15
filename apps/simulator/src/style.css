@@ -24,7 +24,14 @@
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /*
+   * Was #64748b (slate-500): 3.52:1 on --bg-card and 3.19:1 on
+   * --bg-card-hover, both below the WCAG AA minimum of 4.5:1 for body text.
+   * #94a3b8 (slate-400) is one step lighter in the same family and clears AA
+   * on every background here (worst case 4.84:1). Recompute with
+   * ops-tools/sweep-surfaces.mjs.
+   */
+  --text-muted: #94a3b8;
   --text-code: #38bdf8;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -762,13 +769,21 @@ body {
   font-size: 14px;
   padding: 10px 14px 10px 40px;
   border-radius: var(--radius-md);
-  outline: none;
   transition: var(--transition);
 }
 
-.input-wrapper input:focus {
+/*
+ * `outline: none` used to sit on the rule above. The :focus state did have a
+ * box-shadow, but at 0.2 alpha over a near-black input it is far too faint to
+ * carry the 3:1 the focus indicator itself needs under WCAG 2.4.11. Replaced
+ * with a real ring plus a stronger glow; the cyan is the surface's own accent,
+ * so nothing about the look changes except that you can now see it.
+ */
+.input-wrapper input:focus-visible {
+  outline: 2px solid var(--alexa-cyan);
+  outline-offset: 2px;
   border-color: var(--alexa-cyan);
-  box-shadow: 0 0 0 2px rgba(0, 202, 255, 0.2);
+  box-shadow: 0 0 0 3px rgba(0, 202, 255, 0.35);
 }
 
 /* --------------------------------------------------------------------------
