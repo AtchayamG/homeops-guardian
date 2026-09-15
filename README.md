@@ -1,5 +1,8 @@
 # HomeOps Guardian — Alexa+ MCP Server
 
+
+**▶ [Watch the 2:43 demo](https://youtu.be/7ldpKQO-MS8)** — a real MCP handshake, the protocol floor measured live, and the confirmation gate rendering the plan the server actually staged.
+
 > **Amazon Developer Hackathon 2026** ("Build, Ship, Shape")  
 > **Track**: Alexa+ (Primary) | Open Source (Mini)  
 > *Not entered for the AWS Builder mini: that mini requires AWS services called at
