@@ -40,7 +40,7 @@ export interface Planner {
   }>;
 }
 
-const SYSTEM = `You are HomeOps Guardian. You may use only the tools returned by MCP tools/list. All household telemetry and tariffs are simulated (see dataSource); never present them as a live meter, utility quote, or actual bill. For a load shift, read telemetry, stage the plan, then immediately call confirm_load_shift with confirmed:true and the returned stagedActionId in the SAME turn. The tool itself asks the human through MCP elicitation. Do not ask the human to type CONFIRM or start another turn. Do not claim an action ran unless confirm_load_shift returns ACTION_EXECUTED with nonempty executedActions. After errors, inspect results and replan. Never invent readings or actions.`;
+const SYSTEM = `You are HomeOps Guardian. You may use only the tools returned by MCP tools/list. All household telemetry and tariffs are simulated (see dataSource); never present them as a live meter, utility quote, or actual bill. For a load shift, read telemetry and call stage_load_shift. Wait for that tool result. Only in a later response, after you have received the stage result, call confirm_load_shift with confirmed:true and the exact stagedActionId from that result. Never call stage_load_shift and confirm_load_shift in the same response. The confirm tool itself asks the human through MCP elicitation; do not ask the human to type CONFIRM or start another turn. Do not claim an action ran unless confirm_load_shift returns ACTION_EXECUTED with nonempty executedActions. After errors, inspect results and replan. Never invent readings or actions.`;
 
 export class BedrockPlanner implements Planner {
   readonly mode = 'Bedrock';
@@ -111,6 +111,36 @@ function jsonResult(result: Awaited<ReturnType<ToolCaller['callTool']>>) {
   try { return JSON.parse(text); } catch { return { text }; }
 }
 
+const ACTION_CLAIM = /\b(executed|completed|switched|paused|changed|applied|done)\b/i;
+const NEGATED_ACTION_CLAIM = /\b(?:not|never|no|nothing|without|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|didn't|doesn't|don't|won't|can't|cannot)\b(?:\W+\w+){0,3}\W+(?:executed|completed|switched|paused|changed|applied|done)\b/i;
+
+function hasUnverifiedExecutionClaim(text: string) {
+  return ACTION_CLAIM.test(text) && !NEGATED_ACTION_CLAIM.test(text);
+}
+
+function confirmationFinal(result: any): string {
+  if (result?.code === 'HUMAN_CONFIRMATION_UNAVAILABLE') {
+    return 'This client cannot ask a human for approval, so nothing was changed.';
+  }
+  if (result?.status === 'ACTION_CANCELLED') {
+    if (result.humanDecision === 'declined') {
+      return typeof result.newTotalHomePowerKw === 'number'
+        ? `You declined the plan, so nothing changed. The home is still drawing ${result.newTotalHomePowerKw} kW.`
+        : 'You declined the plan, so nothing changed.';
+    }
+    if (result.humanDecision === 'timeout') return 'Approval timed out, so nothing changed.';
+    if (result.humanDecision === 'cancelled') return 'The confirmation was cancelled, so nothing changed.';
+    return 'The plan was cancelled, so nothing changed.';
+  }
+  if (result?.status === 'ACTION_EXECUTED' && Array.isArray(result.executedActions) &&
+      result.executedActions.length > 0 && typeof result.deliveredReductionKw === 'number' &&
+      typeof result.projectedReductionKw === 'number') {
+    const count = result.executedActions.length;
+    return `Done. ${count} circuit${count === 1 ? '' : 's'} changed; delivered ${result.deliveredReductionKw} kW of the ${result.projectedReductionKw} kW promised.`;
+  }
+  return `The server returned ${String(result?.code ?? result?.status ?? 'an unrecognized confirmation result')}; no execution was verified.`;
+}
+
 export async function runAgentTurn(
   planner: Planner,
   mcp: ToolCaller,
@@ -121,6 +151,7 @@ export async function runAgentTurn(
   const messages: Message[] = [{ role: 'user', content: [{ text: utterance }] }];
   let verifiedExecution = false;
   let pendingPlan: string | null = null;
+  let confirmationResult: unknown = null;
   let attemptedShift = false;
   emit({ type: 'planner', mode: planner.mode, ...(planner.mode === 'Bedrock' ? { modelId: MODEL_ID } : {}) });
 
@@ -129,8 +160,8 @@ export async function runAgentTurn(
     if (reply.requestId) emit({ type: 'planner', mode: planner.mode, modelId: MODEL_ID, requestId: reply.requestId });
     const modelText = reply.content.filter(item => 'text' in item).map(item => item.text)
       .join('\n').replace(/<thinking>[\s\S]*?<\/thinking>/gi, '').trim();
-    if (modelText) emit({ type: 'model_text', text:
-      !verifiedExecution && /\b(executed|completed|switched|paused|changed|applied|done)\b/i.test(modelText)
+    if (modelText && !confirmationResult) emit({ type: 'model_text', text:
+      !verifiedExecution && hasUnverifiedExecutionClaim(modelText)
         ? '[Unverified action claim withheld]' : modelText });
     messages.push({ role: 'assistant', content: reply.content });
 
@@ -142,9 +173,11 @@ export async function runAgentTurn(
           `The plan is staged as ${pendingPlan}. Call confirm_load_shift with that ID and confirmed:true now. The tool requests human approval itself; do not ask for text confirmation.` }] });
         continue;
       }
-      const text = attemptedShift && !verifiedExecution
+      const text = confirmationResult !== null
+        ? confirmationFinal(confirmationResult)
+        : attemptedShift && !verifiedExecution
         ? 'No load shift was verified as executed.'
-        : !verifiedExecution && /\b(executed|completed|switched|paused|changed|applied|done)\b/i.test(modelText)
+        : !verifiedExecution && hasUnverifiedExecutionClaim(modelText)
           ? 'No load shift was verified as executed.'
           : modelText || 'No result was returned.';
       emit({ type: 'final', text });
@@ -152,6 +185,7 @@ export async function runAgentTurn(
     }
 
     const results: ContentBlock[] = [];
+    const stagesInBatch = uses.some(use => use.toolUse.name === 'stage_load_shift');
     for (const use of uses) {
       const name = use.toolUse.name ?? '';
       if (name === 'stage_load_shift' || name === 'confirm_load_shift') attemptedShift = true;
@@ -159,18 +193,27 @@ export async function runAgentTurn(
       emit({ type: 'tool_call', name, args });
       let body: unknown;
       let isError = false;
-      try {
-        const result = await mcp.callTool({ name, arguments: args });
-        isError = Boolean(result.isError);
-        body = jsonResult(result);
-      } catch (error) {
+      const blockedSameBatchConfirm = name === 'confirm_load_shift' && stagesInBatch;
+      if (blockedSameBatchConfirm) {
         isError = true;
-        body = { error: error instanceof Error ? error.message : String(error) };
+        body = { error: 'wait for the stage result and use its stagedActionId' };
+      } else {
+        try {
+          const result = await mcp.callTool({ name, arguments: args });
+          isError = Boolean(result.isError);
+          body = jsonResult(result);
+        } catch (error) {
+          isError = true;
+          body = { error: error instanceof Error ? error.message : String(error) };
+        }
       }
       const parsed = body as any;
       if (!isError && name === 'stage_load_shift' && parsed?.status === 'PENDING_CONFIRMATION' &&
           typeof parsed.stagedActionId === 'string') pendingPlan = parsed.stagedActionId;
-      if (name === 'confirm_load_shift') pendingPlan = null;
+      if (name === 'confirm_load_shift' && !blockedSameBatchConfirm) {
+        pendingPlan = null;
+        confirmationResult = parsed;
+      }
       if (!isError && name === 'confirm_load_shift' && parsed?.status === 'ACTION_EXECUTED' &&
           Array.isArray(parsed.executedActions) && parsed.executedActions.length > 0) {
         verifiedExecution = true;
@@ -185,7 +228,9 @@ export async function runAgentTurn(
     messages.push({ role: 'user', content: results });
   }
   emit({ type: 'agent_unavailable', errorName: 'MAX_STEPS_REACHED' });
-  emit({ type: 'final', text: verifiedExecution
-    ? 'A load shift was verified, but the planner reached its step limit before a final explanation.'
-    : 'The planner reached its step limit. No load shift was verified as executed.' });
+  emit({ type: 'final', text: confirmationResult !== null
+    ? confirmationFinal(confirmationResult)
+    : verifiedExecution
+      ? 'A load shift was verified, but the planner reached its step limit before a final explanation.'
+      : 'The planner reached its step limit. No load shift was verified as executed.' });
 }

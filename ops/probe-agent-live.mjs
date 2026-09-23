@@ -26,10 +26,19 @@ while (true) {
     if (event.type === 'planner') {
       if (event.requestId) { bedrockRequests++; console.log('BEDROCK', event.modelId, event.requestId); }
       else console.log('PLANNER', event.mode, event.modelId ?? '');
+    } else if (event.type === 'model_text') {
+      console.log('MODEL_TEXT', event.text);
+    } else if (event.type === 'tool_call') {
+      calls++;
+      console.log('TOOL_CALL', event.name, JSON.stringify(event.args));
+    } else if (event.type === 'tool_result') {
+      console.log('TOOL_RESULT', event.name, event.isError ? 'error' : 'success', event.summary);
+    } else if (event.type === 'mcp_frame') {
+      const frame = event.frame ?? {};
+      console.log('MCP_FRAME', event.direction, frame.method ?? (frame.error ? 'error' : 'response'));
+    } else if (event.type === 'agent_unavailable') {
+      console.log('AGENT_UNAVAILABLE', event.errorName);
     }
-    if (event.type === 'tool_call') { calls++; console.log('TOOL_CALL', event.name); }
-    if (event.type === 'tool_result') console.log('TOOL_RESULT', event.name, event.isError ? 'error' : 'success');
-    if (event.type === 'agent_unavailable') console.log('AGENT_UNAVAILABLE', event.errorName);
     if (event.type === 'human_confirmation_required') {
       console.log('HUMAN_CONFIRMATION_REQUIRED (probe declines)');
       const decision = await fetch('http://127.0.0.1:3003/agent/confirm', {
