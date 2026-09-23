@@ -28,20 +28,26 @@ const post = async (body, extraHeaders = {}) => {
   });
   let json = null;
   try {
-    json = await res.json();
+    if (res.headers.get('content-type')?.includes('text/event-stream')) {
+      const body = await res.text();
+      const data = body.split('\n').find(line => line.startsWith('data: '));
+      json = data ? JSON.parse(data.slice(6)) : null;
+    } else {
+      json = await res.json();
+    }
   } catch {
     /* non-JSON body */
   }
   return { status: res.status, sessionId: res.headers.get('mcp-session-id'), json };
 };
 
-const init = (protocolVersion) => ({
+const init = (protocolVersion, elicitation = false) => ({
   jsonrpc: '2.0',
   id: 1,
   method: 'initialize',
   params: {
     ...(protocolVersion === undefined ? {} : { protocolVersion }),
-    capabilities: {},
+    capabilities: elicitation ? { elicitation: { form: {} } } : {},
     clientInfo: { name: 'protocol-version-probe', version: '0.0.1' }
   }
 });
@@ -66,6 +72,10 @@ for (const [label, version] of cases) {
     (json?.error ? `error ${json.error.code}: ${String(json.error.message).slice(0, 60)}` : '(none)');
   console.log(label.padEnd(52), String(status).padEnd(4), negotiated);
 }
+
+const withElicitation = await post(init('2024-11-05', true));
+console.log('client with elicitation asks for 2024-11-05'.padEnd(52),
+  String(withElicitation.status).padEnd(4), withElicitation.json?.result?.protocolVersion ?? '(none)');
 
 console.log(
   '\nRead this against the resources page requirement of a 2025-11-25 minimum:\n' +

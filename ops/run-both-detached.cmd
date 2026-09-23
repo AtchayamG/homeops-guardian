@@ -1,8 +1,9 @@
 @echo off
-REM Bring up BOTH halves of HomeOps Guardian in their own detached consoles so
-REM the simulator can drive the real server without either one dying when a
+REM Bring up the MCP server, agent and simulator in their own consoles so
+REM the simulator can drive the agent without either one dying when a
 REM tool call returns.
 REM   3001 - HomeOps Guardian MCP server (Streamable HTTP)
+REM   3003 - Bedrock agent and human elicitation bridge
 REM   5173 - the simulated Alexa+ client
 REM
 REM Both halves run FROM SOURCE, deliberately.
@@ -20,12 +21,16 @@ REM One entry point, one code path, no stale artefact to serve by accident.
 setlocal
 set "P=%~dp0.."
 
-echo === stopping anything already on 3001 / 5173 ===
+echo === stopping anything already on 3001 / 3003 / 5173 ===
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001" ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3003" ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
 
 echo === MCP server from source, detached ===
 start "MCP Server" /min "%~dp0_launch-server.cmd"
+
+echo === agent from source, detached ===
+start "Agent" /min "%~dp0_launch-agent.cmd"
 
 echo === simulator dev server from source, detached ===
 REM `npm run dev` rather than `preview`: preview serves apps/simulator/dist,
@@ -36,9 +41,13 @@ start "Simulator" /min "%~dp0_launch-sim.cmd"
 ping -n 14 127.0.0.1 >nul
 echo === listening ports ===
 netstat -ano | findstr LISTENING | findstr ":3001"
+netstat -ano | findstr LISTENING | findstr ":3003"
 netstat -ano | findstr LISTENING | findstr ":5173"
 echo === server health ===
 curl -s -m 10 http://127.0.0.1:3001/health
+echo.
+echo === agent health ===
+curl -s -m 10 http://127.0.0.1:3003/health
 echo.
 echo === simulator page served? ===
 curl -s -m 10 -o NUL -w "HTTP %%{http_code}" http://127.0.0.1:5173/

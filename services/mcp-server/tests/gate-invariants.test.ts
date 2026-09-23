@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createMcpApp } from '../src/server.js';
+import { createMcpApp, type HomeOpsState } from '../src/server.js';
 
 /**
  * The confirmation gate's one promise is that what you approve is what runs.
@@ -18,9 +18,12 @@ import { createMcpApp } from '../src/server.js';
 describe('what the gate promises is what the execution delivers', () => {
   let server: http.Server;
   let baseUrl: string;
+  let state: HomeOpsState;
 
   beforeAll(async () => {
-    const { app } = createMcpApp();
+    const created = createMcpApp();
+    const { app } = created;
+    state = created.state;
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => {
@@ -100,15 +103,14 @@ describe('what the gate promises is what the execution delivers', () => {
     const before = await callTool('get_circuit_telemetry', {});
     const staged = await callTool('stage_load_shift', {});
 
-    const result = await callTool('confirm_load_shift', {
-      stagedActionId: staged.stagedActionId,
-      confirmed: true
-    });
+    // This suite checks the plan arithmetic inside HomeOpsState. The separate
+    // elicitation-gate suite checks that HTTP callers cannot execute directly.
+    const result = state.executeAction(staged.stagedActionId, true)!;
 
     expect(result.status).toBe('ACTION_EXECUTED');
 
     // Same circuits, same order-independent set.
-    expect(result.executedActions.map((a: any) => a.circuitId).sort()).toEqual(
+    expect(result.executedActions!.map((a: any) => a.circuitId).sort()).toEqual(
       staged.proposedActions.map((a: any) => a.circuitId).sort()
     );
 
@@ -124,7 +126,7 @@ describe('what the gate promises is what the execution delivers', () => {
     );
 
     // Each item's own before/after agrees with its claimed reduction.
-    for (const a of result.executedActions) {
+    for (const a of result.executedActions!) {
       expect(a.beforeKw - a.afterKw).toBeCloseTo(a.powerReductionKw, 2);
     }
   });

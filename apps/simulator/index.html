@@ -30,7 +30,7 @@
 
         <div class="server-status-pill" id="server-status-pill">
           <span class="status-dot" id="status-dot"></span>
-          <span class="status-label" id="status-label">Connecting to MCP Server...</span>
+          <span class="status-label" id="status-label">Connecting to agent...</span>
           <span class="session-badge" id="session-badge"></span>
         </div>
 
@@ -38,7 +38,7 @@
           <button class="btn btn-secondary btn-sm" id="btn-toggle-inspector" title="Toggle Protocol Inspector">
             <span class="icon">🔍</span> Inspector (<span id="req-count">0</span>)
           </button>
-          <button class="btn btn-secondary btn-sm" id="btn-reconnect" title="Reconnect MCP Session">
+          <button class="btn btn-secondary btn-sm" id="btn-reconnect" title="Reconnect agent">
             <span class="icon">🔄</span> Reconnect
           </button>
         </div>
@@ -51,14 +51,14 @@
           <!-- Offline Warning Card (Visible only when server unreachable) -->
           <div class="offline-card" id="offline-card" style="display: none;">
             <div class="offline-icon">⚠️</div>
-            <h2>MCP Server Offline</h2>
+            <h2>Agent Offline</h2>
             <p>
-              The simulator communicates with the real HomeOps Guardian server over MCP Streamable HTTP.
-              Could not reach <code>http://127.0.0.1:3001/mcp</code>.
+              The simulator communicates with the local agent, which calls the HomeOps Guardian MCP server.
+              Could not reach <code>http://127.0.0.1:3003/health</code>.
             </p>
             <div class="offline-instruction">
-              Start the server in a separate terminal:
-              <pre><code>ops\run-mcp.cmd</code></pre>
+              Start the MCP server and agent:
+              <pre><code>ops\run-both-detached.cmd</code></pre>
             </div>
             <button class="btn btn-primary" id="btn-retry-conn">Retry Connection</button>
           </div>
@@ -83,6 +83,10 @@
             <div class="messages-container" id="messages-container">
               <!-- Dynamically populated speech & tool cards -->
             </div>
+            <section class="agent-trace" aria-label="Agent trace">
+              <h3>Agent trace <span id="planner-mode">Connecting...</span></h3>
+              <div id="agent-trace"></div>
+            </section>
           </div>
 
           <!-- Suggested Walkthrough Prompts (Judge-Facing) -->
@@ -101,8 +105,8 @@
               <button class="chip" data-text="Alexa, optimize high-draw appliances for peak rates">
                 <span class="chip-step">4</span> "Alexa, optimize high-draw appliances for peak rates"
               </button>
-              <button class="chip" data-text="Confirm staged load shift">
-                <span class="chip-step">5</span> "Confirm staged load shift"
+              <button class="chip" data-text="My EV charger is making the bill huge, can you do something tonight?">
+                <span class="chip-step">5</span> "My EV charger is making the bill huge, can you do something tonight?"
               </button>
               <button class="chip" data-text="Alexa, check status after optimization">
                 <span class="chip-step">6</span> "Alexa, check status after optimization"
@@ -143,11 +147,11 @@
               <span class="meta-val">POST http://127.0.0.1:3001/mcp</span>
             </div>
             <div class="meta-row">
-              <span class="meta-label">Session ID:</span>
+              <span class="meta-label">Session:</span>
               <span class="meta-val code-font" id="inspector-session-id">None</span>
             </div>
             <div class="meta-row">
-              <span class="meta-label">Total Calls:</span>
+              <span class="meta-label">JSON-RPC Frames:</span>
               <span class="meta-val" id="inspector-call-count">0</span>
             </div>
           </div>

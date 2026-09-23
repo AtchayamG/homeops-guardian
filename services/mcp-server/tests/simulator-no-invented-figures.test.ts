@@ -66,15 +66,20 @@ describe('the simulator never invents a figure the server did not send', () => {
     expect(code).not.toMatch(/\$0\.\d+\s*\/?\s*kWh/);
   });
 
-  it('renders the proposed actions the server sent', () => {
-    expect(code).toContain('proposedActions');
+  it('renders only the server-authored elicitation message', () => {
+    expect(code).toContain('event.message');
+    expect(code).toContain('escapeHtml(serverMessage');
+    expect(code).not.toContain('stage_load_shift');
+    expect(code).not.toContain('confirm_load_shift');
   });
 
   it('says so when a field is missing instead of filling it in', () => {
     expect(code).toContain('not reported by the server');
   });
 
-  it('labels the money figure as modelled', () => {
-    expect(code.toLowerCase()).toContain('modelled');
+  it('talks to the agent rather than sending MCP calls itself', () => {
+    expect(code).toContain('/agent/turn');
+    expect(code).toContain('/agent/confirm');
+    expect(code).not.toContain("fetch('http://127.0.0.1:3001/mcp'");
   });
 });

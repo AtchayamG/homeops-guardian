@@ -207,7 +207,7 @@ describe('MCP Server Unit Tests', () => {
     stagedActionId = parsed.stagedActionId;
   });
 
-  it('executes tools/call for confirm_load_shift with confirmed=true and updates power draw', async () => {
+  it('rejects confirm_load_shift when the client did not declare elicitation', async () => {
     const res = await request(app)
       .post('/mcp')
       .set('Accept', 'application/json, text/event-stream')
@@ -229,8 +229,8 @@ describe('MCP Server Unit Tests', () => {
 
     expect(res.status).toBe(200);
     const parsed = JSON.parse(res.body.result.content[0].text);
-    expect(parsed.status).toBe('ACTION_EXECUTED');
-    expect(parsed.newTotalHomePowerKw).toBe(3.8);
+    expect(res.body.result.isError).toBe(true);
+    expect(parsed.code).toBe('HUMAN_CONFIRMATION_UNAVAILABLE');
 
     // Verify circuit telemetry reflects updated load
     const telemetryRes = await request(app)
@@ -250,10 +250,10 @@ describe('MCP Server Unit Tests', () => {
       });
 
     const updatedTelemetry = JSON.parse(telemetryRes.body.result.content[0].text);
-    expect(updatedTelemetry.totalHomePowerKw).toBe(3.8);
+    expect(updatedTelemetry.totalHomePowerKw).toBe(13.4);
     const ev = updatedTelemetry.circuits.find((c: any) => c.id === 'ev_charger');
-    expect(ev.status).toBe('PAUSED');
-    expect(ev.powerKw).toBe(0.0);
+    expect(ev.status).toBe('CHARGING');
+    expect(ev.powerKw).toBe(7.2);
   });
 
   it('rejects non-initialization requests missing MCP-Session-Id with 400', async () => {

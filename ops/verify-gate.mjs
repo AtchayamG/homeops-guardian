@@ -1,100 +1,77 @@
-// verify-gate.mjs — prove the human-confirmation gate on the real server.
-//
-// The gate is the most interesting claim in Project 3, so it gets tested the
-// only way that means anything: drive the live server over MCP Streamable HTTP
-// and read the circuit state back at each step.
-//
-//   1. initialize                     -> real MCP-Session-Id
-//   2. get_circuit_telemetry          -> BASELINE
-//   3. stage_load_shift               -> PENDING_CONFIRMATION + action id
-//   4. get_circuit_telemetry          -> MUST BE UNCHANGED. Staging alone
-//                                        must not touch a single circuit.
-//   5. confirm_load_shift(confirmed)  -> ACTION_EXECUTED
-//   6. get_circuit_telemetry          -> MUST NOW DIFFER
-//
-// Exits non-zero on any failed assertion so ops scripts can gate on it.
-const BASE = 'http://127.0.0.1:3001';
-let sessionId = null;
-let id = 0;
+// Live MCP gate probe. The scripted answers below represent test-harness human
+// choices; the production agent forwards elicitation to the actual UI instead.
+import { Client } from '../services/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js';
+import { StreamableHTTPClientTransport } from '../services/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js';
+import { ElicitRequestSchema } from '../services/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js';
 
-async function rpc(method, params) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json, text/event-stream'
-  };
-  if (sessionId) {
-    headers['MCP-Session-Id'] = sessionId;
-    headers['MCP-Protocol-Version'] = '2025-11-25';
+const endpoint = new URL('http://127.0.0.1:3001/mcp');
+const failures = [];
+function check(label, actual, expected) {
+  const pass = actual === expected;
+  console.log(`${pass ? 'PASS' : 'FAIL'} ${label}: ${actual}`);
+  if (!pass) failures.push(`${label}: expected ${expected}, got ${actual}`);
+}
+async function connect(decide) {
+  const client = new Client({ name: 'gate-verification', version: '1.0.0' });
+  if (decide) {
+    client.registerCapabilities({ elicitation: { form: {} } });
+    client.setRequestHandler(ElicitRequestSchema, async request => {
+      check('elicitation cites staged EV circuit', request.params.message.includes('ev_charger'), true);
+      check('elicitation cites promised reduction', request.params.message.includes('9.6 kW'), true);
+      return decide() ? { action: 'accept', content: { approve: true } } : { action: 'decline' };
+    });
   }
-  const res = await fetch(BASE + '/mcp', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params })
-  });
-  const sid = res.headers.get('mcp-session-id');
-  if (sid && !sessionId) sessionId = sid;
-  const body = await res.json();
-  if (body.error) throw new Error(method + ' -> ' + JSON.stringify(body.error));
-  return { status: res.status, result: body.result };
+  await client.connect(new StreamableHTTPClientTransport(endpoint));
+  return client;
+}
+async function call(client, name, args = {}) {
+  const result = await client.callTool({ name, arguments: args });
+  const body = JSON.parse(result.content.find(part => part.type === 'text').text);
+  return { ...body, isError: Boolean(result.isError) };
 }
 
-const callTool = async (name, args = {}) => {
-  const { result } = await rpc('tools/call', { name, arguments: args });
-  return JSON.parse(result.content[0].text);
-};
+try {
+  const client = await connect(() => false);
+  const before = await call(client, 'get_circuit_telemetry');
+  check('baseline draw kW', before.totalHomePowerKw, 13.4);
+  check('baseline EV status', before.circuits.find(c => c.id === 'ev_charger').status, 'CHARGING');
+  const staged = await call(client, 'stage_load_shift');
+  check('staged status', staged.status, 'PENDING_CONFIRMATION');
+  const during = await call(client, 'get_circuit_telemetry');
+  check('draw before approval kW', during.totalHomePowerKw, 13.4);
+  const denied = await call(client, 'confirm_load_shift', { stagedActionId: staged.stagedActionId, confirmed: true });
+  check('human decline status', denied.status, 'ACTION_CANCELLED');
+  const afterDecline = await call(client, 'get_circuit_telemetry');
+  check('draw after decline kW', afterDecline.totalHomePowerKw, 13.4);
+  await client.close();
 
-const fail = [];
-const check = (label, ok, detail) => {
-  console.log((ok ? '  PASS  ' : '  FAIL  ') + label + (detail ? ' :: ' + detail : ''));
-  if (!ok) fail.push(label);
-};
+  const noCapability = await connect();
+  const noCapabilityPlan = await call(noCapability, 'stage_load_shift');
+  const blocked = await call(noCapability, 'confirm_load_shift', {
+    stagedActionId: noCapabilityPlan.stagedActionId, confirmed: true
+  });
+  check('no capability error', blocked.code, 'HUMAN_CONFIRMATION_UNAVAILABLE');
+  check('no capability isError', blocked.isError, true);
+  check('draw without capability kW', (await call(noCapability, 'get_circuit_telemetry')).totalHomePowerKw, 13.4);
+  await noCapability.close();
 
-const init = await rpc('initialize', {
-  protocolVersion: '2025-11-25',
-  capabilities: {},
-  clientInfo: { name: 'orchestrator-gate-verify', version: '1.0' }
-});
-console.log('initialize HTTP', init.status, '| session', sessionId);
-check('server issued a real MCP session id', Boolean(sessionId), sessionId ?? 'none');
+  const approvedClient = await connect(() => true);
+  const approvedPlan = await call(approvedClient, 'stage_load_shift');
+  const approved = await call(approvedClient, 'confirm_load_shift', {
+    stagedActionId: approvedPlan.stagedActionId, confirmed: true
+  });
+  check('human approval status', approved.status, 'ACTION_EXECUTED');
+  check('executed actions present', approved.executedActions.length > 0, true);
+  check('promised reduction kW', approved.projectedReductionKw, 9.6);
+  check('delivered reduction kW', approved.deliveredReductionKw, 9.6);
+  const after = await call(approvedClient, 'get_circuit_telemetry');
+  check('draw after approval kW', after.totalHomePowerKw, 3.8);
+  check('EV after approval', after.circuits.find(c => c.id === 'ev_charger').status, 'PAUSED');
+  await approvedClient.close();
 
-const before = await callTool('get_circuit_telemetry');
-const evBefore = before.circuits.find((c) => c.id === 'ev_charger');
-console.log('\nBASELINE  total', before.totalHomePowerKw, 'kW | ev_charger', evBefore.status, evBefore.powerKw, 'kW');
-
-const staged = await callTool('stage_load_shift', { reason: 'orchestrator gate verification' });
-console.log('\nSTAGED    ', staged.stagedActionId, staged.status);
-check('staging reports PENDING_CONFIRMATION', staged.status === 'PENDING_CONFIRMATION', staged.status);
-check('staging returns an action id', Boolean(staged.stagedActionId), staged.stagedActionId);
-
-const during = await callTool('get_circuit_telemetry');
-const evDuring = during.circuits.find((c) => c.id === 'ev_charger');
-console.log('\nAFTER STAGING, BEFORE APPROVAL  total', during.totalHomePowerKw, 'kW | ev_charger', evDuring.status, evDuring.powerKw, 'kW');
-check(
-  'staging alone changes NO circuit state',
-  during.totalHomePowerKw === before.totalHomePowerKw && evDuring.status === evBefore.status,
-  `${before.totalHomePowerKw} -> ${during.totalHomePowerKw} kW, ev ${evBefore.status} -> ${evDuring.status}`
-);
-
-const confirmed = await callTool('confirm_load_shift', {
-  stagedActionId: staged.stagedActionId,
-  confirmed: true
-});
-console.log('\nCONFIRMED ', confirmed.status);
-check('confirmation reports ACTION_EXECUTED', confirmed.status === 'ACTION_EXECUTED', confirmed.status);
-
-const after = await callTool('get_circuit_telemetry');
-const evAfter = after.circuits.find((c) => c.id === 'ev_charger');
-console.log('\nAFTER APPROVAL  total', after.totalHomePowerKw, 'kW | ev_charger', evAfter.status, evAfter.powerKw, 'kW');
-check(
-  'approval actually mutates circuit state',
-  after.totalHomePowerKw < before.totalHomePowerKw,
-  `${before.totalHomePowerKw} -> ${after.totalHomePowerKw} kW`
-);
-check(
-  'the reduction the plan promised is the reduction delivered',
-  Math.abs(before.totalHomePowerKw - after.totalHomePowerKw - staged.projectedReductionKw) < 0.05,
-  `promised ${staged.projectedReductionKw} kW, delivered ${(before.totalHomePowerKw - after.totalHomePowerKw).toFixed(2)} kW`
-);
-
-console.log('\n' + (fail.length ? 'GATE VERIFY FAILED: ' + fail.join('; ') : 'GATE VERIFY: all checks passed'));
-process.exit(fail.length ? 1 : 0);
+  console.log(failures.length ? `GATE VERIFY FAILED: ${failures.join('; ')}` : 'GATE VERIFY: all checks passed');
+  if (failures.length) process.exitCode = 1;
+} catch (error) {
+  console.error('GATE VERIFY BLOCKED:', error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

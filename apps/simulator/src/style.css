@@ -966,3 +966,9 @@ body {
   padding: 6px 10px;
   border-radius: 4px;
 }
+/* The tool trace and elicitation remain readable on narrow simulator windows. */
+.agent-trace { margin: 20px 0; padding: 12px; border: 1px solid #334155; border-radius: 12px; }
+.agent-trace h3 { margin: 0 0 10px; font-size: 14px; }
+#planner-mode { font-weight: 400; color: #93c5fd; }
+.agent-trace .tool-step-card { display: block; margin: 8px 0; padding: 10px; }
+.agent-trace pre, .gate-body pre, .audit-entry pre { white-space: pre-wrap; overflow-wrap: anywhere; }

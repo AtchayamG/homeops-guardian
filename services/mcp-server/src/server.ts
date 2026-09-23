@@ -37,6 +37,8 @@ export interface CircuitState {
 export interface ProposedAction {
   circuitId: string;
   action: string;
+  beforeKw: number;
+  afterKw: number;
   powerReductionKw: number;
   details: string;
 }
@@ -193,6 +195,8 @@ export class HomeOpsState {
         return {
           circuitId,
           action: target.action,
+          beforeKw: round2(circuit.powerKw),
+          afterKw: target.toPowerKw,
           powerReductionKw: round2(Math.max(0, circuit.powerKw - target.toPowerKw)),
           details: target.details
         };
@@ -237,12 +241,18 @@ export class HomeOpsState {
 
   public executeAction(actionId: string, confirmed: boolean): StagedAction | null {
     const action = this.stagedActions.get(actionId);
-    if (!action) return null;
+    if (!action || action.status !== 'PENDING_CONFIRMATION') return null;
 
     if (!confirmed) {
       action.status = 'ACTION_CANCELLED';
       return action;
     }
+
+    // A second plan may have changed these circuits while this one awaited a
+    // person. Never execute a plan different from the one displayed to them.
+    if (action.proposedActions.some(proposed =>
+      this.circuits.get(proposed.circuitId)?.powerKw !== proposed.beforeKw
+    )) return null;
 
     // Apply the plan that was staged, item by item, and record what each item
     // actually did. Nothing here names a circuit or a target draw: those come
@@ -279,11 +289,12 @@ export class HomeOpsState {
   }
 }
 
-export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): McpServer {
+export function configureMcpServer(state: HomeOpsState = new HomeOpsState(), sessionId = 'local-test'): McpServer {
   const server = new McpServer({
     name: 'homeops-guardian',
     version: '0.1.0'
   });
+  const awaitingHuman = new Set<string>();
 
   // Tool 1: ping
   server.tool(
@@ -389,7 +400,7 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
       reason: z.string().optional().describe('Reason for staging load shift')
     },
     async (args) => {
-      const action = state.stageAction('current-session');
+      const action = state.stageAction(sessionId);
 
       return {
         content: [
@@ -429,7 +440,60 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
       confirmed: z.boolean().describe('True to approve and execute the load shift; False to cancel')
     },
     async ({ stagedActionId, confirmed }) => {
-      const action = state.executeAction(stagedActionId, confirmed);
+      const staged = state.getStagedAction(stagedActionId);
+      if (!staged || staged.sessionId !== sessionId || staged.status !== 'PENDING_CONFIRMATION') {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ code: 'STAGED_ACTION_UNAVAILABLE', status: staged?.status ?? 'NOT_FOUND' }) }]
+        };
+      }
+
+      if (confirmed && !server.server.getClientCapabilities()?.elicitation?.form) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ code: 'HUMAN_CONFIRMATION_UNAVAILABLE', status: staged.status }) }]
+        };
+      }
+
+      if (confirmed && awaitingHuman.has(stagedActionId)) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: JSON.stringify({ code: 'HUMAN_CONFIRMATION_PENDING', status: staged.status }) }]
+        };
+      }
+
+      let humanDecision: 'accepted' | 'declined' | 'cancelled' | 'timeout' | 'not_requested' = 'not_requested';
+      if (confirmed) {
+        awaitingHuman.add(stagedActionId);
+        try {
+          const message = [
+            'HomeOps Guardian requests your approval for a simulated load shift.',
+            ...staged.proposedActions.map(a =>
+              `${a.circuitId}: ${a.action}, ${a.beforeKw} -> ${a.afterKw} kW (reduction ${a.powerReductionKw} kW). ${a.details}`
+            ),
+            `Promised reduction: ${staged.projectedReductionKw} kW.`,
+            `Modelled monthly savings: $${staged.estimatedMonthlySavingsUsd}.`,
+            `Savings basis: ${staged.savingsBasis}`,
+            'Approve this exact staged plan?'
+          ].join('\n');
+          const response = await server.server.elicitInput({
+            mode: 'form', message,
+            requestedSchema: {
+              type: 'object',
+              properties: { approve: { type: 'boolean', title: 'Approve load shift' } },
+              required: ['approve']
+            }
+          }, { timeout: 60_000 });
+          humanDecision = response.action === 'accept' && response.content?.approve === true
+            ? 'accepted' : response.action === 'decline' ? 'declined' : 'cancelled';
+        } catch (error) {
+          humanDecision = /timeout|timed out/i.test(String(error)) ? 'timeout' : 'cancelled';
+        } finally {
+          awaitingHuman.delete(stagedActionId);
+        }
+      }
+
+      const action = state.executeAction(stagedActionId, confirmed && humanDecision === 'accepted');
 
       if (!action) {
         return {
@@ -456,6 +520,7 @@ export function configureMcpServer(state: HomeOpsState = new HomeOpsState()): Mc
               {
                 stagedActionId: action.id,
                 status: action.status,
+                humanDecision,
                 confirmedAt: new Date().toISOString(),
                 // What was applied, per circuit, with the draw before and
                 // after. A client cannot tell a user what changed unless the
@@ -638,10 +703,12 @@ export function createMcpApp(options: AppOptions = {}): {
       const newSessionId = randomUUID();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => newSessionId,
-        enableJsonResponse: true
+        // Elicitation is a nested server-to-client request. It needs the
+        // response SSE stream open while the tool call is still running.
+        enableJsonResponse: !Boolean(body?.params?.capabilities?.elicitation?.form)
       });
 
-      const server = configureMcpServer(state);
+      const server = configureMcpServer(state, newSessionId);
       await server.connect(transport);
 
       const session: McpSession = {

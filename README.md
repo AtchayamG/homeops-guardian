@@ -6,7 +6,8 @@
 > **Amazon Developer Hackathon 2026** ("Build, Ship, Shape")  
 > **Track**: Alexa+ (Primary) | Open Source (Mini)  
 > *Not entered for the AWS Builder mini: that mini requires AWS services called at
-> runtime, and this server calls none. An earlier draft of this README listed it.*  
+> runtime. The local P3-01 agent now calls Bedrock, but the published submission
+> has not been updated for that mini.*
 > **Entrant**: Atchayam G (Solo Entrant)  
 > **License**: MIT  
 
@@ -24,7 +25,9 @@ In accordance with the truthfulness standards of this portfolio:
 | **JSON-RPC Handshake & Tool Calling** | **VERIFIED** | `initialize`, `tools/list`, and `tools/call` for `ping` tool execute against live HTTP transport returning real timestamps. |
 | **Streamable HTTP Session Handling** | **VERIFIED** | Handles `MCP-Session-Id` issuance, validation, and rejection of missing session headers on non-init requests per spec. |
 | **Protocol floor of `2025-11-25`** | **VERIFIED (measured, and it used to be false twice)** | A client asking for `2024-11-05` was answered `200 / 2024-11-05` before the fix; it is now answered `200 / 2025-11-25`. Both states reproducible with `node ops/probe-protocol-version.mjs`; six tests pin it. It then came back a second way: two `ops/` scripts launched `node dist\index.js`, and `dist/` was a stale build without the fix — so the server a judge would have started was pre-fix while every test stayed green. Both scripts now run from source and `tests/ops-entrypoints.test.ts` fails the build if that returns. Friction-log entry 7. |
-| **Human confirmation gate** | **VERIFIED (by readings, not screenshots)** | `node ops/verify-gate.mjs`: staging leaves all circuits untouched (13.4 kW, `ev_charger` CHARGING), approval moves them (3.8 kW, PAUSED), and the promised 9.6 kW equals the delivered 9.60 kW. |
+| **Human confirmation gate** | **VERIFIED locally** | `node ops/verify-gate.mjs`: the server sends `elicitation/create` to a client that declared form elicitation. Decline and missing capability leave 13.4 kW unchanged; an accepted `approve:true` yields 3.8 kW, with promised and delivered reductions both 9.6 kW. The agent forwards elicitation to the UI and cannot answer it through a tool argument. MCP does not cryptographically attest that an arbitrary third-party client used a human. |
+| **Bedrock agent planner** | **VERIFIED locally, not yet published** | `services/agent` uses Nova Pro through Bedrock Converse in `us-east-1`, with tools derived from MCP `tools/list`. Real runs on 2026-09-23 called telemetry, stage, then confirm and reached the server's human elicitation; the probe declined and no circuit changed. Request IDs and outputs are in the private P3-01 handoff. |
+| **Simulator agent trace** | **VERIFIED locally** | The browser showed the Bedrock mode, tool arguments/results, a server-authored elicitation card, and an MCP JSON-RPC inspector. After Decline, the confirm result reported `ACTION_CANCELLED`, delivered reduction 0, and 13.4 kW. |
 | **Tariff and telemetry figures** | **SIMULATED, AND SAID SO IN THE PAYLOAD** | Every `get_circuit_telemetry` result carries a `dataSource` block (`liveRateFeed: false`, `liveMeter: false`, modelling basis, reference URL). The tool description says SIMULATED; a test fails if it ever says "real-time" again. |
 | **Live Alexa+ On-Device Deployment** | **NOT POSSIBLE FOR ANYONE YET** | Checked first-hand on 2026-09-14 from a registered Amazon developer account: the portal's own **"Alexa+ Developer Console — Create and manage your add-on"** link resolves to `https://developer.amazon.com/alexa/console/ask/addons#/`, and that page renders **"Coming Soon"**. Add-ons are not live, and there is no SDK that can drive an Echo device today — confirmed by Amazon's developer-relations team on the hackathon's official build session (https://youtu.be/ws61g53S2b4, ~[07:38]–[09:22] and ~[59:33]–[60:56]): *"right now you cannot take an SDK and control an Echo Show."* The Alexa+ track is therefore judged on a server built to the **plain MCP standard** plus the interaction it proposes, and the hosts explicitly endorsed demonstrating it through a simulated client — that is what their own internal teams built. The US-only MCP Toolkit restriction is real but is **not a scoring penalty**: Alexa+ is rolling out country by country and no entrant anywhere can currently deploy to a device. This row exists to be precise about what was and was not exercised, not to flag a gap in this submission. |
 | **Appliance Telemetry Hardware (Smart Panels / CT Clamps)** | **UNVERIFIED / SIMULATED** | Hardware-in-the-loop CT clamps and physical smart meters are simulated in software; no physical electrical panel is connected. |
@@ -42,6 +45,10 @@ In accordance with the truthfulness standards of this portfolio:
 ```bash
 cd services/mcp-server
 npm install
+cd ../agent
+npm install
+cd ../../apps/simulator
+npm install
 ```
 
 ### Running the Server
@@ -54,8 +61,14 @@ Or directly using npm:
 cd services/mcp-server
 npm start
 ```
-The server will start listening at:
+The MCP server will start listening at:
 `http://127.0.0.1:3001/mcp`
+
+Run `npm start` in `services/agent` (port 3003), then `npm run dev` in
+`apps/simulator` (port 5173). `ops\run-both-detached.cmd` starts all three
+local services from source. Bedrock uses the default AWS credential chain;
+if unavailable, the UI explicitly labels its keyword path
+`Scripted fallback - no model`.
 
 ### Running the Tests
 Using the ops batch script (which generates `ops/test-run.log`):
@@ -102,14 +115,18 @@ against a running server; six tests in `tests/integration.test.ts` pin it.
 | `ping` | Health check; returns `{ status, timestamp }` | Used by the simulator to prove the transport before anything else. |
 | `get_circuit_telemetry` | Per-circuit power draw, power factor and hourly cost, plus the modelled TOU tariff | Every payload carries a `dataSource` provenance block: simulated household, `liveRateFeed: false`, `liveMeter: false`, the tariff stated as modelling a published residential TOU structure rather than being warranted current. See the note below. |
 | `stage_load_shift` | Proposes a rate-aware load shift and returns it as **staged**, changing nothing | Returns `status: PENDING_CONFIRMATION` and `confirmationRequired: true`. |
-| `confirm_load_shift` | The human confirmation gate — executes or cancels a staged action | Nothing moves without an explicit `confirmed: true` against a specific `stagedActionId`. |
+| `confirm_load_shift` | The human confirmation gate — executes or cancels a staged action | `confirmed:false` cancels. `confirmed:true` triggers server-authored MCP form elicitation; only `accept` plus `approve:true` executes. Without the client capability, the tool returns `HUMAN_CONFIRMATION_UNAVAILABLE`. |
 
 ### Why the confirmation gate is the point
 
 An agent that can turn off your EV charger should not be able to do it because
 a sentence was ambiguous. `stage_load_shift` deliberately cannot act: it
-returns a plan. Only `confirm_load_shift`, with the staged action's own id and
-an explicit `confirmed: true`, moves a single watt.
+returns a plan. Only `confirm_load_shift`, with the staged action's own id, a
+request for confirmation, and a separate accepted MCP elicitation with
+`approve:true`, moves a single watt. A model cannot approve through a tool
+argument in the shipped agent. An arbitrary external MCP client can implement
+its own elicitation handler, so this local protocol gate is not proof of human
+identity.
 
 `ops/verify-gate.mjs` proves this with readings rather than screenshots:
 staging leaves every circuit untouched (13.4 kW total, `ev_charger` CHARGING),

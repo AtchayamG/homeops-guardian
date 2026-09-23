@@ -190,8 +190,8 @@ describe('MCP Server Live HTTP Integration Test', () => {
     expect(confirmResponse.status).toBe(200);
     const confirmBody = (await confirmResponse.json()) as any;
     const confirmed = JSON.parse(confirmBody.result.content[0].text);
-    expect(confirmed.status).toBe('ACTION_EXECUTED');
-    expect(confirmed.newTotalHomePowerKw).toBe(3.8);
+    expect(confirmBody.result.isError).toBe(true);
+    expect(confirmed.code).toBe('HUMAN_CONFIRMATION_UNAVAILABLE');
   });
 });
 
