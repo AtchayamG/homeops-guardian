@@ -1,3 +1,5 @@
+> **Re-cut 2026-09-24.** Everything below from segment 4 (1:08) onward describes the 2026-09-15 cut and is superseded: the keyword router and in-page Approve button it shows were replaced by a Bedrock Nova Pro agent and an MCP elicitation gate (P3-01/P3-02). The new 1:08-2:14 is a live recording made by `ops/video/recut-agent.mjs`; its narration text is in that script. 0:00-1:08 and the closing card are unchanged.
+
 # Demo video script — HomeOps Guardian
 
 > **Amazon Developer Hackathon 2026 (Build, Ship, Shape)**

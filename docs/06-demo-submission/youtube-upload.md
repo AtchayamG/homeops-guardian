@@ -1,10 +1,11 @@
 # YouTube upload — HomeOps Guardian demo video
 
-**File**: `docs/06-demo-submission/homeops-demo.mp4` (12.8 MB, 163.000s = 2:43.0,
-1920x1080 @ 60fps, AAC 48 kHz stereo, mean −19.5 dB / peak −4.4 dB, no silence
-gap over 4s)
+**File**: `docs/06-demo-submission/homeops-demo.mp4`, re-cut 2026-09-24 (140.37s = 2:20.4,
+1920x1080 @ 30fps, AAC 48 kHz stereo, integrated -16.2 LUFS). 0:00-1:08 and the closing
+card are the 2026-09-15 cut, unchanged; 1:08-2:14 is a new live recording of the Bedrock
+agent and the MCP elicitation gate (`ops/video/recut-agent.mjs`).
 
-17 seconds under the 3:00 hard limit.
+40 seconds under the 3:00 hard limit.
 
 ## Visibility
 
@@ -34,10 +35,10 @@ in for Alexa+ — which is what Amazon's own teams demonstrated with.
 0:00  What this is, and what it cannot be
 0:24  A real transport — handshake, session id, Streamable HTTP 2025-11-25
 0:44  The protocol floor, measured — captured live, not asserted
-1:08  Nothing moves without a yes — the confirmation gate
-1:40  Promised vs delivered, computed from opposite directions
-2:10  What is real here, and what is modelled
-2:36  Close
+1:08  A Bedrock Nova Pro agent plans; the MCP server asks the human (elicitation)
+1:32  The model cannot approve its own plan; the final line comes from the server
+1:55  What is real here, and what is modelled
+2:14  Close
 
 Three things this demo is actually about:
 
@@ -51,26 +52,20 @@ walkthrough would have been talking to a server the repository no longer
 contained. Both scripts now run from source and a test reads the batch files to
 keep it that way. It immediately caught a second offender.
 
-2. THE CONFIRMATION GATE USED TO DESCRIBE A PLAN IT WAS NOT GOING TO RUN. The
-card that asks you to approve a change had the plan typed into its HTML, while
-the server's response carries a proposedActions array. It looked correct because
-the hardcoded numbers happened to match what the server sends. Consent is to the
-plan as described, so a gate whose description and effect are independent
-constants is a gate in name only. Now staging derives every reduction from each
-circuit's current draw, execution walks the staged plan and reports what it
-applied per circuit with before/after, and promised-vs-delivered are computed
-from opposite directions so a disagreement would be visible. The test that
-would have caught it: stage a second plan after the shift has run and it must
-propose LESS, because the charger is already paused.
+2. THE HUMAN GATE CANNOT BE PASSED BY THE MODEL. The stand-in for Alexa+ is a
+Bedrock Nova Pro agent that can only call the tools the server lists. Staging a
+load shift changes nothing. To confirm, the server itself asks the human through
+MCP elicitation and shows the exact staged plan; it fails closed if the client
+cannot ask. We checked it the hard way: making the server trust the model's own
+"confirmed" flag instead of the human's answer makes 7 of 8 gate tests fail. The
+agent's final line after a confirmation is written from the server's result, so
+it can only say "Done" when the server reports executed actions.
 
-3. NO FIGURE PRETENDS TO BE REAL. The server, the transport, the session
-handling, the tool schemas and the gate are real and tested — 48 tests across 5
-suites. The household is not: no smart panel, no CT clamp, no meter, no utility
-feed. Every payload carrying a number carries a dataSource block saying so,
-including an instruction not to present the figures to anyone as their bill. An
-earlier version did not, and it read as a live rate quote from a named utility;
-that is written up in the friction log. The monthly saving figure now carries
-the arithmetic that produced it.
+3. NO FIGURE PRETENDS TO BE REAL. The server, the transport, the elicitation gate
+and the Bedrock agent are real and tested: 57 server tests and 9 agent tests. The
+household is not: no smart panel, no CT clamp, no meter, no utility feed. Every
+payload carrying a number carries a dataSource block saying so, including an
+instruction not to present the figures to anyone as their bill.
 
 Amazon "Build, Ship, Shape" Developer Hackathon 2026
 Track: Alexa+ (primary) · Mini: Open Source
