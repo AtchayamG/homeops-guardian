@@ -96,6 +96,8 @@ tariff, load shifting, TypeScript, human in the loop, hackathon
 
 ## After upload
 
+Uploaded 2026-09-24: https://youtu.be/00LRE46zk7U — Devpost both records verified.
+
 Paste the watch URL back and it goes into:
 1. The Devpost submission's video field
 2. The P3 README, under the badges
