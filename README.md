@@ -4,10 +4,10 @@
 **▶ [Watch the 2:43 demo](https://youtu.be/7ldpKQO-MS8)** — a real MCP handshake, the protocol floor measured live, and the confirmation gate rendering the plan the server actually staged.
 
 > **Amazon Developer Hackathon 2026** ("Build, Ship, Shape")  
-> **Track**: Alexa+ (Primary) | Open Source (Mini)  
-> *Not entered for the AWS Builder mini: that mini requires AWS services called at
-> runtime. The local P3-01 agent now calls Bedrock, but the published submission
-> has not been updated for that mini.*
+> **Track**: Alexa+ (Primary) | AWS Builder (Mini) | Open Source (Mini)  
+> *AWS Builder: Amazon Bedrock is called at runtime. The agent that stands in for Alexa+ is a Bedrock
+> Converse tool-use loop on `amazon.nova-pro-v1:0` (`services/agent`). Entered for that mini on 2026-09-24,
+> after the Bedrock agent replaced the keyword router.*  
 > **Entrant**: Atchayam G (Solo Entrant)  
 > **License**: MIT  
 
